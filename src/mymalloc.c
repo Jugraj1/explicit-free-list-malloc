@@ -30,6 +30,34 @@ Chunk *last_chunk_from_OS()
   return last;
 }
 
+/** Gets a constant chunk of kMemorySize(= 64 MB) from the OS
+ * This function should only be called when existing memory
+ * can't satisfy needs or when it hasn't been requested once.
+ * Returns NULL if OS fails, sets errno to ENOMEM.
+ */
+void *get_chunk_from_OS(void)
+{
+  Chunk *chunk = mmap(NULL, kMemorySize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+  if (chunk == MAP_FAILED) {
+    errno = ENOMEM;
+    return NULL;
+  }
+  chunk->fencepost = FENCEPOST;
+  //Navigate to the last of the chunk to place a fencepost at the other end too
+  uint32_t *end_fencepost = ADD_BYTES(chunk, kMemorySize - 4);
+  *end_fencepost = FENCEPOST;
+  Chunk *prev = last_chunk_from_OS();
+  chunk->next = NULL;
+  chunk->prev = prev;
+  if (prev == NULL)
+  {
+    first_map = chunk;
+  }
+  chunk->start_free_list = (Block *)(chunk + 1);
+  chunk->start_alloc_list = NULL;
+  return chunk;
+}
+
 void *my_malloc(size_t size) {
   return NULL;
 }
@@ -67,4 +95,9 @@ Block *get_next_block(Block *block) {
    return a pointer to the start of the metadata block. */
 Block *ptr_to_block(void *ptr) {
   return ADD_BYTES(ptr, -((ssize_t) kMetadataSize));
+}
+
+int main() {
+  // Chunk *start = get_chunk_from_OS();
+  // printf("Start address: %p", start);
 }

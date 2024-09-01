@@ -51,7 +51,6 @@ struct Chunk
   // This represents the start of free blocks in this memory returned by OS
   Block *start_free_list;
   // This represents the start of allocated blocks in this memory returned by OS
-  // The actual start will always lay in here in the form of fence posts
   Block *start_alloc_list;
 };
 
