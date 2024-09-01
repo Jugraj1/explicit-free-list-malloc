@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <sys/mman.h>
+#include <errno.h>
+#include <stdint.h>
 
 #ifdef ENABLE_LOG
 #define LOG(...) fprintf(stderr, "[malloc] " __VA_ARGS__);
@@ -16,6 +18,7 @@
 
 #define ADD_BYTES(ptr, n) ((void *) (((char *) (ptr)) + (n)))
 
+#define FENCEPOST 0xDEADBEEF
 
 /** This is the Block struct, which contains all metadata needed for your 
  *  explicit free list. You are allowed to modify this struct (and will need to 
@@ -40,6 +43,8 @@ typedef struct Chunk Chunk;
 
 struct Chunk
 {
+  // Fencepost to detect buffer overflows
+  uint32_t fencepost; 
   Chunk *next;
   Chunk *prev;
 
