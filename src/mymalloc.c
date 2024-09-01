@@ -11,6 +11,25 @@ const size_t kMaxAllocationSize = (128ull << 20) - kMetadataSize;
 // Memory size that is mmapped (64 MB)
 const size_t kMemorySize = (64ull << 20);
 
+Chunk *first_map = NULL;
+
+/** Returns a pointer to the last (most recent) memory chunk
+ * that was requested from OS.
+ * Would return NULL if memory was never requested.
+ */
+Chunk *last_chunk_from_OS()
+{
+  Chunk *last = first_map;
+  if (last != NULL)
+  {
+    while (last->next != NULL)
+    {
+      last = last->next;
+    }
+  }
+  return last;
+}
+
 void *my_malloc(size_t size) {
   return NULL;
 }
