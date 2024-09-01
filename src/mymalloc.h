@@ -33,6 +33,23 @@ struct Block {
   bool allocated;
 };
 
+
+/** Represents an entire OS-level 'Chunk' of memory as returned from mmap.
+ */
+typedef struct Chunk Chunk;
+
+struct Chunk
+{
+  Chunk *next;
+  Chunk *prev;
+
+  // This represents the start of free blocks in this memory returned by OS
+  Block *start_free_list;
+  // This represents the start of allocated blocks in this memory returned by OS
+  // The actual start will always lay in here in the form of fence posts
+  Block *start_alloc_list;
+};
+
 // Word alignment
 extern const size_t kAlignment;
 // Minimum allocation size (1 word)
