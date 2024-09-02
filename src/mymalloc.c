@@ -221,6 +221,21 @@ void freeing(Block *block)
   block->prev = put_free_after;
 }
 
+/** merges block1 and block2 into one single block (effective in block1)
+ * block1 and block2 must be adjacent
+ * Assumes that block1 appears before block2
+*/
+void join(Block *block1, Block *block2)
+{
+  block1->size = block1->size + block2->size;
+  block1->next = block2->next;
+
+  if (block1->next)
+  {
+    block1->next->prev = block1;
+  }
+}
+
   /* Given a ptr assumed to be returned from a previous call to `my_malloc`,
      return a pointer to the start of the metadata block. */
   Block *ptr_to_block(void *ptr)
