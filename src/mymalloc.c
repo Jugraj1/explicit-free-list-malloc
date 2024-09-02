@@ -153,7 +153,8 @@ Block *get_start_block(void) {
 }
 
 /* Returns the next block in memory */
-Block *get_next_block(Block *block) {
+Block *get_next_block(Block *block)
+{
   if (!block)
   {
     return NULL;
@@ -171,12 +172,62 @@ Block *get_next_block(Block *block) {
   return NULL;
 }
 
-/* Given a ptr assumed to be returned from a previous call to `my_malloc`,
-   return a pointer to the start of the metadata block. */
-Block *ptr_to_block(void *ptr) {
-  return ADD_BYTES(ptr, -((ssize_t) kMetadataSize));
+/* Transfers block from free list to allocated list of that particular chunk. */
+void mallocing(Block *block)
+{
+  Chunk *assoc_chunk = chunk_from_block(block);
+  Block *prev_in_free_list = block->prev;
+  Block *next_in_free_list = block->next;
+  prev_in_free_list->next = next_in_free_list;
+  next_in_free_list->prev = prev_in_free_list;
+  Block *alloc_before = assoc_chunk->start_alloc_list;
+  if (!alloc_before)
+  {
+    assoc_chunk->start_alloc_list = block;
+    block->next = NULL;
+    block->prev = NULL;
+    return;
+  }
+  while (alloc_before < block) {
+    alloc_before = alloc_before->next;
+  }
+  Block *alloc_after = alloc_before->prev;
+  block->next = alloc_before;
+  block->prev = alloc_after;
 }
 
-int main() {
- 
+/* Transfers block from allocated list to the free list of that particular chunk. */
+void freeing(Block *block)
+{
+  Chunk *assoc_chunk = chunk_from_block(block);
+  Block *prev_in_alloc_list = block->prev;
+  Block *next_in_alloc_list = block->next;
+  prev_in_alloc_list->next = next_in_alloc_list;
+  next_in_alloc_list->prev = prev_in_alloc_list;
+  Block *put_free_before = assoc_chunk->start_free_list;
+  if (!put_free_before)
+  {
+    assoc_chunk->start_free_list = block;
+    block->next = NULL;
+    block->prev = NULL;
+    return;
+  }
+  while (put_free_before < block)
+  {
+    put_free_before = put_free_before->next;
+  }
+  Block *put_free_after = put_free_before->prev;
+  block->next = put_free_before;
+  block->prev = put_free_after;
 }
+
+  /* Given a ptr assumed to be returned from a previous call to `my_malloc`,
+     return a pointer to the start of the metadata block. */
+  Block *ptr_to_block(void *ptr)
+  {
+    return ADD_BYTES(ptr, -((ssize_t)kMetadataSize));
+  }
+
+  int main()
+  {
+  }
