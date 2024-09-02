@@ -33,7 +33,7 @@ struct Block {
   Block *next;
   Block *prev;
   // Is the block allocated or not?
-  bool allocated;
+  // bool allocated;
 };
 
 
@@ -73,9 +73,11 @@ void my_free(void *p);
 int is_free(Block *block);
 size_t block_size(Block *block);
 
-Block *get_start_block(void); 
+Block *get_start_block(void);
+Block *get_start_block_in_chunk(Chunk *chunk);
 Block *get_next_block(Block *block);
 
 Block *ptr_to_block(void *ptr);
+
 
 #endif

@@ -54,6 +54,10 @@ void *get_chunk_from_OS(void)
     first_map = chunk;
   }
   chunk->start_free_list = (Block *)(chunk + 1);
+  chunk->start_free_list->size = kMemorySize - (sizeof(Chunk) + sizeof(FENCEPOST));
+  chunk->start_free_list->next = NULL;
+  chunk->start_free_list->prev = NULL;
+  // chunk->start_free_list->allocated = false;
   chunk->start_alloc_list = NULL;
   return chunk;
 }
@@ -71,9 +75,46 @@ void my_free(void *ptr) {
  *  update these functions yourself.
  **/
 
-/* Returns 1 if the given block is free, 0 if not. */
-int is_free(Block *block) {
-  return !block->allocated;
+/** Given a block, returns the chunk to which the block belongs.
+ */
+Chunk *chunk_from_block(Block *block)
+{
+  if (!block)
+  {
+    return NULL;
+  }
+  Chunk *suitable_chunk = first_map;
+  while (block >= (Block *) ADD_BYTES(suitable_chunk, kMemorySize))
+  {
+    suitable_chunk = suitable_chunk->next;
+    if (!suitable_chunk)
+    {
+      return NULL;
+    }
+  }
+  return suitable_chunk;
+}
+
+/** Returns 1 if the given block is free, 0 if not.
+ *  The block must be in the given chunk.
+ **/
+int is_free(Block *block)
+{
+  if (!block) 
+  {
+    return 0;
+  }
+  Chunk *chunk = chunk_from_block(block);
+  Block *curr = chunk->start_free_list;
+  while (curr != NULL) 
+  {
+    if (curr == block) 
+    {
+      return 1;
+    }
+    curr = curr->next;
+  }
+  return 0;
 }
 
 /* Returns the size of the given block */
@@ -81,13 +122,42 @@ size_t block_size(Block *block) {
   return block->size;
 }
 
+/** Given a Chunk, this function would return first allocable block (excluding fenceposts & meta-deta of chunk)
+ */
+Block *get_start_block_in_chunk(Chunk *chunk)
+{
+  if (chunk == NULL)
+  {
+    return NULL;
+  }
+  Block *start_alloc = chunk->start_alloc_list;
+  Block *start_free = chunk->start_free_list;
+  if (!start_alloc)
+  {
+    return start_free;
+  }
+  else if (!start_free)
+  {
+    return start_alloc;
+  }
+  if (start_free < start_alloc)
+  {
+    return start_free;
+  }
+  return start_alloc;
+}
+
 /* Returns the first block in memory (excluding fenceposts) */
 Block *get_start_block(void) {
-  return NULL;
+  return get_start_block_in_chunk(first_map);
 }
 
 /* Returns the next block in memory */
 Block *get_next_block(Block *block) {
+  if (!block)
+  {
+    return NULL;
+  }
   return NULL;
 }
 
@@ -98,6 +168,5 @@ Block *ptr_to_block(void *ptr) {
 }
 
 int main() {
-  // Chunk *start = get_chunk_from_OS();
-  // printf("Start address: %p", start);
+ 
 }
