@@ -158,6 +158,16 @@ Block *get_next_block(Block *block) {
   {
     return NULL;
   }
+  Chunk *chunk_of_block = chunk_from_block(block);
+  Block *next_block = ADD_BYTES(block, block_size(block));
+  if (next_block >= (Block *) ADD_BYTES(chunk_of_block, kMemorySize))
+  {
+    if (chunk_of_block->next)
+    {
+      return get_start_block_in_chunk(chunk_of_block->next);
+    }
+    return NULL;
+  }
   return NULL;
 }
 
