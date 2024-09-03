@@ -62,6 +62,28 @@ void *get_chunk_from_OS(void)
   return chunk;
 }
 
+/** Splits the block starting at the given address into two
+ * Assumes size includes metadata size
+ */
+Block *split_block(Block *block, size_t size)
+{
+  size_t original_size = block->size;
+  block->size = size;
+
+  Block *right = get_next_block(block);
+  right->size = original_size - block->size;
+
+  right->next = block->next;
+  if (block->next)
+  {
+    block->next->prev = right;
+  }
+  block->next = right;
+  right->prev = block;
+
+  return block;
+}
+
 /** Given a chunk, finds a block in that having size closest to size.
  * size is inclusive of meta-data size
  */
@@ -107,6 +129,8 @@ Block *best_fit(size_t size)
   return best;
 }
 
+
+
 /* Returns a pointer to the block of memory satisfying size. */
 void *my_malloc(size_t size) 
 {
@@ -114,6 +138,7 @@ void *my_malloc(size_t size)
   {
     first_map = get_chunk_from_OS();
   }
+  // Block *best_fit_block = best_fit(s)
 }
 
 void my_free(void *ptr) {
