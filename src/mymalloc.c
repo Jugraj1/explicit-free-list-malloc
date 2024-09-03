@@ -49,10 +49,10 @@ void *get_chunk_from_OS(void)
   Chunk *prev = last_chunk_from_OS();
   chunk->next = NULL;
   chunk->prev = prev;
-  if (prev == NULL)
-  {
-    first_map = chunk;
-  }
+  // if (prev == NULL)
+  // {
+  //   first_map = chunk;
+  // }
   chunk->start_free_list = (Block *)(chunk + 1);
   chunk->start_free_list->size = kMemorySize - (sizeof(Chunk) + sizeof(FENCEPOST));
   chunk->start_free_list->next = NULL;
@@ -62,8 +62,34 @@ void *get_chunk_from_OS(void)
   return chunk;
 }
 
-void *my_malloc(size_t size) {
-  return NULL;
+/** Given a chunk, finds a block in that having size closest to size.
+ * size is inclusive of meta-data size
+ */
+Block *best_fit_in_chunk(Chunk *chunk, size_t size) 
+{
+  Block *search = chunk->start_free_list;
+  Block *best = NULL;
+  size_t diff = SIZE_MAX;
+  while (search != NULL)
+  {
+    size_t calc_diff = search->size - size;
+    if (calc_diff >= 0 && calc_diff < diff)
+    {
+      best = search;
+      diff = calc_diff;
+    }
+    search = search->next;
+  }
+  return best;
+}
+
+/* Returns a pointer to the block of memory satisfying size. */
+void *my_malloc(size_t size) 
+{
+  if (!first_map)
+  {
+    first_map = get_chunk_from_OS();
+  }
 }
 
 void my_free(void *ptr) {
