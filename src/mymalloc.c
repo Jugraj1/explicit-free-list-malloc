@@ -60,7 +60,10 @@ void *get_chunk_from_OS(void)
   chunk->start_free_list->prev = NULL;
   // chunk->start_free_list->allocated = false;
   chunk->start_alloc_list = NULL;
-  prev->next = chunk;
+  if (prev)
+  {
+    prev->next = chunk;
+  }
   return chunk;
 }
 
@@ -327,7 +330,7 @@ Block *get_next_block(Block *block)
     }
     return NULL;
   }
-  return NULL;
+  return next_block;
 }
 
 /** merges block1 and block2 into one single block (effective in block1)
