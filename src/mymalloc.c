@@ -49,6 +49,7 @@ void *get_chunk_from_OS(void)
   Chunk *prev = last_chunk_from_OS();
   chunk->next = NULL;
   chunk->prev = prev;
+  
   // if (prev == NULL)
   // {
   //   first_map = chunk;
@@ -59,19 +60,21 @@ void *get_chunk_from_OS(void)
   chunk->start_free_list->prev = NULL;
   // chunk->start_free_list->allocated = false;
   chunk->start_alloc_list = NULL;
+  prev->next = chunk;
   return chunk;
 }
 
 /** Splits the block starting at the given address into two
  * Assumes size includes metadata size
+ * Returns the one which is higher in memory
  */
 Block *split_block(Block *block, size_t size)
 {
   size_t original_size = block->size;
-  block->size = size;
+  block->size = original_size - size;
 
   Block *right = get_next_block(block);
-  right->size = original_size - block->size;
+  right->size = size;
 
   right->next = block->next;
   if (block->next)
@@ -81,7 +84,7 @@ Block *split_block(Block *block, size_t size)
   block->next = right;
   right->prev = block;
 
-  return block;
+  return right;
 }
 
 /** Given a chunk, finds a block in that having size closest to size.
@@ -129,16 +132,96 @@ Block *best_fit(size_t size)
   return best;
 }
 
+/* Transfers block from free list to allocated list of that particular chunk. */
+void mallocing(Block *block)
+{
+  Chunk *assoc_chunk = chunk_from_block(block);
+  Block *prev_in_free_list = block->prev;
+  Block *next_in_free_list = block->next;
+  prev_in_free_list->next = next_in_free_list;
+  next_in_free_list->prev = prev_in_free_list;
+  Block *alloc_before = assoc_chunk->start_alloc_list;
+  if (!alloc_before)
+  {
+    assoc_chunk->start_alloc_list = block;
+    block->next = NULL;
+    block->prev = NULL;
+    return;
+  }
+  while (alloc_before < block)
+  {
+    alloc_before = alloc_before->next;
+  }
+  Block *alloc_after = alloc_before->prev;
+  block->next = alloc_before;
+  block->prev = alloc_after;
+}
 
+/* Transfers block from allocated list to the free list of that particular chunk. */
+void freeing(Block *block)
+{
+  Chunk *assoc_chunk = chunk_from_block(block);
+  Block *prev_in_alloc_list = block->prev;
+  Block *next_in_alloc_list = block->next;
+  prev_in_alloc_list->next = next_in_alloc_list;
+  next_in_alloc_list->prev = prev_in_alloc_list;
+  Block *put_free_before = assoc_chunk->start_free_list;
+  if (!put_free_before)
+  {
+    assoc_chunk->start_free_list = block;
+    block->next = NULL;
+    block->prev = NULL;
+    return;
+  }
+  while (put_free_before < block)
+  {
+    put_free_before = put_free_before->next;
+  }
+  Block *put_free_after = put_free_before->prev;
+  block->next = put_free_before;
+  block->prev = put_free_after;
+}
+
+/** Note that this function only works if `alignment` is a power of 2. **/
+static inline size_t round_up(size_t size, size_t alignment)
+{
+  const size_t mask = alignment - 1;
+  return (size + mask) & ~mask;
+}
 
 /* Returns a pointer to the block of memory satisfying size. */
 void *my_malloc(size_t size) 
 {
+  if (!size)
+  {
+    return NULL;
+  }
   if (!first_map)
   {
     first_map = get_chunk_from_OS();
   }
-  // Block *best_fit_block = best_fit(s)
+  size_t total_size = round_up(size + sizeof(Block), kAlignment);
+  Block *best_fit_block = best_fit(total_size);
+  while (!best_fit_block)
+  {
+    best_fit_block = best_fit(total_size);
+    if (!best_fit_block)
+    {
+      Block *new_chunk = get_chunk_from_OS();
+      if (!new_chunk)
+      {
+        return NULL; // OS failed to provide more memory
+      }
+    }
+  }
+  if (best_fit_block->size == total_size || (best_fit_block->size - total_size) < (kMinAllocationSize + sizeof(Block)))
+  {
+    mallocing(best_fit_block);
+  } else 
+  {
+    best_fit_block = split_block(best_fit_block, total_size);
+  }
+  return (void *)(best_fit_block + 1);
 }
 
 void my_free(void *ptr) {
@@ -245,55 +328,6 @@ Block *get_next_block(Block *block)
     return NULL;
   }
   return NULL;
-}
-
-/* Transfers block from free list to allocated list of that particular chunk. */
-void mallocing(Block *block)
-{
-  Chunk *assoc_chunk = chunk_from_block(block);
-  Block *prev_in_free_list = block->prev;
-  Block *next_in_free_list = block->next;
-  prev_in_free_list->next = next_in_free_list;
-  next_in_free_list->prev = prev_in_free_list;
-  Block *alloc_before = assoc_chunk->start_alloc_list;
-  if (!alloc_before)
-  {
-    assoc_chunk->start_alloc_list = block;
-    block->next = NULL;
-    block->prev = NULL;
-    return;
-  }
-  while (alloc_before < block) {
-    alloc_before = alloc_before->next;
-  }
-  Block *alloc_after = alloc_before->prev;
-  block->next = alloc_before;
-  block->prev = alloc_after;
-}
-
-/* Transfers block from allocated list to the free list of that particular chunk. */
-void freeing(Block *block)
-{
-  Chunk *assoc_chunk = chunk_from_block(block);
-  Block *prev_in_alloc_list = block->prev;
-  Block *next_in_alloc_list = block->next;
-  prev_in_alloc_list->next = next_in_alloc_list;
-  next_in_alloc_list->prev = prev_in_alloc_list;
-  Block *put_free_before = assoc_chunk->start_free_list;
-  if (!put_free_before)
-  {
-    assoc_chunk->start_free_list = block;
-    block->next = NULL;
-    block->prev = NULL;
-    return;
-  }
-  while (put_free_before < block)
-  {
-    put_free_before = put_free_before->next;
-  }
-  Block *put_free_after = put_free_before->prev;
-  block->next = put_free_before;
-  block->prev = put_free_after;
 }
 
 /** merges block1 and block2 into one single block (effective in block1)
