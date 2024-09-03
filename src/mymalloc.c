@@ -11,6 +11,8 @@ const size_t kMaxAllocationSize = (128ull << 20) - kMetadataSize;
 // Memory size that is mmapped (64 MB)
 const size_t kMemorySize = (64ull << 20);
 
+#define ALIGN_UP(addr, align) (((addr) + (align) - 1) & ~((align) - 1))
+
 Chunk *first_map = NULL;
 
 /** Returns a pointer to the last (most recent) memory chunk
@@ -54,8 +56,9 @@ void *get_chunk_from_OS(void)
   // {
   //   first_map = chunk;
   // }
-  chunk->start_free_list = (Block *)(chunk + 1);
-  chunk->start_free_list->size = kMemorySize - (sizeof(Chunk) + sizeof(FENCEPOST));
+  chunk->start_free_list = (Block *)ALIGN_UP((uintptr_t)(chunk + 1), kAlignment);
+  chunk->start_free_list->size = kMemorySize - ((uintptr_t)chunk->start_free_list - (uintptr_t)chunk);
+
   chunk->start_free_list->next = NULL;
   chunk->start_free_list->prev = NULL;
   // chunk->start_free_list->allocated = false;
@@ -85,6 +88,13 @@ Chunk *chunk_from_block(Block *block)
     }
   }
   return suitable_chunk;
+}
+
+/** Note that this function only works if `alignment` is a power of 2. **/
+static inline size_t round_up(size_t size, size_t alignment)
+{
+  const size_t mask = alignment - 1;
+  return (size + mask) & ~mask;
 }
 
 /** Splits the block starting at the given address into two
@@ -162,7 +172,10 @@ void mallocing(Block *block)
   Block *prev_in_free_list = block->prev;
   Block *next_in_free_list = block->next;
   prev_in_free_list->next = next_in_free_list;
-  next_in_free_list->prev = prev_in_free_list;
+  if (next_in_free_list)
+  {
+    next_in_free_list->prev = prev_in_free_list;
+  }
   Block *alloc_before = assoc_chunk->start_alloc_list;
   if (!alloc_before)
   {
@@ -203,13 +216,6 @@ void freeing(Block *block)
   Block *put_free_after = put_free_before->prev;
   block->next = put_free_before;
   block->prev = put_free_after;
-}
-
-/** Note that this function only works if `alignment` is a power of 2. **/
-static inline size_t round_up(size_t size, size_t alignment)
-{
-  const size_t mask = alignment - 1;
-  return (size + mask) & ~mask;
 }
 
 /* Returns a pointer to the block of memory satisfying size. */
