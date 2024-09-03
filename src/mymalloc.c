@@ -249,6 +249,7 @@ void *my_malloc(size_t size)
   } else 
   {
     best_fit_block = split_block(best_fit_block, total_size);
+    mallocing(best_fit_block);
   }
   return (void *)(best_fit_block + 1);
 }
