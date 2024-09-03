@@ -83,6 +83,30 @@ Block *best_fit_in_chunk(Chunk *chunk, size_t size)
   return best;
 }
 
+/* Returns the smallest suitable free block by searching all available chunks. */
+Block *best_fit(size_t size)
+{
+  Block *best = NULL;
+  Chunk *curr_chunk = first_map;
+
+  while (curr_chunk != NULL)
+  {
+    Block *current_best_in_chunk = best_fit_in_chunk(curr_chunk, size);
+
+    if (current_best_in_chunk)
+    {
+      if (!best || (current_best_in_chunk->size < best->size))
+      {
+        best = current_best_in_chunk;
+      }
+    }
+
+    curr_chunk = curr_chunk->next;
+  }
+
+  return best;
+}
+
 /* Returns a pointer to the block of memory satisfying size. */
 void *my_malloc(size_t size) 
 {
