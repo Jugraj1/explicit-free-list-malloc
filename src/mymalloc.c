@@ -64,6 +64,26 @@ void *get_chunk_from_OS(void)
   return chunk;
 }
 
+/** Given a block, returns the chunk to which the block belongs.
+ */
+Chunk *chunk_from_block(Block *block)
+{
+  if (!block)
+  {
+    return NULL;
+  }
+  Chunk *suitable_chunk = first_map;
+  while (block >= (Block *)ADD_BYTES(suitable_chunk, kMemorySize))
+  {
+    suitable_chunk = suitable_chunk->next;
+    if (!suitable_chunk)
+    {
+      return NULL;
+    }
+  }
+  return suitable_chunk;
+}
+
 /** Splits the block starting at the given address into two
  * Assumes size includes metadata size
  * Returns the one which is higher in memory
@@ -232,26 +252,6 @@ void my_free(void *ptr) {
  *  purposes. Depending on the optimisations you implement, you will need to
  *  update these functions yourself.
  **/
-
-/** Given a block, returns the chunk to which the block belongs.
- */
-Chunk *chunk_from_block(Block *block)
-{
-  if (!block)
-  {
-    return NULL;
-  }
-  Chunk *suitable_chunk = first_map;
-  while (block >= (Block *) ADD_BYTES(suitable_chunk, kMemorySize))
-  {
-    suitable_chunk = suitable_chunk->next;
-    if (!suitable_chunk)
-    {
-      return NULL;
-    }
-  }
-  return suitable_chunk;
-}
 
 /** Returns 1 if the given block is free, 0 if not.
  *  The block must be in the given chunk.
