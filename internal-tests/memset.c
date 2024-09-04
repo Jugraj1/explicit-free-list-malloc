@@ -12,10 +12,10 @@ int check_expected_size(void *malloced_ptr, size_t size) {
   Block *block = ptr_to_block(malloced_ptr);
   size_t actual_size = block_size(block);
   size_t expected_size = size + kMetadataSize;
-  if (actual_size < (expected_size + kMetadataSize)) {
+  if (actual_size < (expected_size)) {
     ILOG("check_expected_size error: "
          "expected at least %lu for my_malloc(%lu), got %lu instead\n",
-         expected_size + kMetadataSize, size, actual_size);
+         expected_size, size, actual_size);
     return 0;
   }
   return 1;
