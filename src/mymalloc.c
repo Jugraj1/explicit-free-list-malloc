@@ -10,63 +10,342 @@ const size_t kMetadataSize = sizeof(Block);
 const size_t kMaxAllocationSize = (128ull << 20) - kMetadataSize;
 // Memory size that is mmapped (64 MB)
 const size_t kMemorySize = (64ull << 20);
+// Maximum number of requests from OS
+const int MAX_REQ = 256;
 
 #define ALIGN_UP(addr, align) (((addr) + (align) - 1) & ~((align) - 1))
 
-Chunk *first_map = NULL;
+// Chunk *first_map = NULL;
+Chunk *ch_array[MAX_REQ] = {NULL};
+
+// An array of free lists, where each entry corresponds to a range of block sizes.
+// The 0th item contains blocks for sizes 1 to 8 bytes.
+// The i-th item contains blocks for sizes from (i * 8 + 1) to (i + 1) * 8 bytes.
+Block *free_lists[N_LISTS];
+
+// Global variable to track the last chunk
+int index_last_chunk_from_OS = -1;
+
+/** Returns the appropriate index of a free list
+ * that might contain a block of given size or bigger.
+ */
+int calculate_index(size_t size)
+{
+  return (size + kAlignment - 1) / kAlignment - 1;
+}
 
 /** Returns a pointer to the last (most recent) memory chunk
  * that was requested from OS.
  * Would return NULL if memory was never requested.
  */
-Chunk *last_chunk_from_OS()
+// Chunk *last_chunk_from_OS()
+// {
+// Chunk *last = first_map;
+// if (last != NULL)
+// {
+//   while (last->next != NULL)
+//   {
+//     last = last->next;
+//   }
+// }
+// return last;
+// }
+
+/* Calculates the size of the block. */
+size_t get_size(Block *block)
 {
-  Chunk *last = first_map;
-  if (last != NULL)
-  {
-    while (last->next != NULL)
-    {
-      last = last->next;
-    }
-  }
-  return last;
+  return block->size_and_flags & SIZE_MASK;
 }
 
-/** Gets a constant chunk of kMemorySize(= 64 MB) from the OS
+/* Checks whether the given block is allocated or not. */
+bool is_allocated(Block *block)
+{
+  return block->size_and_flags & ALLOC_MASK;
+}
+
+/* Checks whether the previous block is allocated or not. */
+bool is_prev_allocated(Block *block)
+{
+  return block->size_and_flags & PREV_FREE_MASK;
+}
+
+/** Sets or clears the allocation status of the current/prev block.
+ * current = 1 means current block, current = 0 means previous block
+ */
+void set_allocation_status(Block *block, bool allocated, bool current)
+{
+  if (allocated && current)
+  {
+    block->size_and_flags |= ALLOC_MASK;
+  }
+  else if (allocated && !current)
+  {
+    block->size_and_flags |= PREV_FREE_MASK;
+  }
+  else if (!allocated && current)
+  {
+    block->size_and_flags &= ~ALLOC_MASK;
+  }
+  else
+  {
+    block->size_and_flags &= ~PREV_FREE_MASK;
+  }
+}
+
+/* Sets the footer given a block. */
+void set_footer(Block *block)
+{
+  Footer *footer = (Footer *)ADD_BYTES(block, block_size(block) - sizeof(Footer));
+  footer->allocated = is_allocated(block);
+  footer->size = get_size(block);
+}
+
+/** Gets the footer of the given block.
+ * Function must be invoked only on free blocks,
+ * allocated blocks does not have a footer
+ */
+Footer *get_footer(Block *free_block)
+{
+  Footer *footer = (Footer *)ADD_BYTES(free_block, block_size(free_block) - sizeof(Footer));
+  return footer;
+}
+
+/* Checks whether there is a fencepost to the left of the block. */
+bool is_prev_fencepost(Block *block)
+{
+  // Get the address of the potential fencepost (which is a `uint32_t` value).
+  uint32_t *possible_fencepost = (uint32_t *)ADD_BYTES(block, -sizeof(uint32_t));
+
+  // Check if the previous block is a fencepost.
+  return *possible_fencepost == FENCEPOST;
+}
+
+/* Checks whether there is a fencepost to the right of the block. */
+bool is_next_fencepost(Block *block)
+{
+  // Get the address of the potential fencepost (which is a `uint32_t` value).
+  uint32_t *possible_fencepost = (uint32_t *)ADD_BYTES(block, block_size(block));
+
+  // Check if the previous block is a fencepost.
+  return *possible_fencepost == FENCEPOST;
+}
+
+/* Removes the block from the appropriate free list*/
+void remove_from_free_list(Block *block)
+{
+  Block *prev = block->prev;
+  Block *next = block->next;
+
+  // If there's a previous block, update its next pointer.
+  if (prev != NULL)
+  {
+    prev->next = next;
+  }
+  else
+  {
+    // Handle case where the block is the head of the free list.
+    // free_lists[] is the array of free list heads, so find the appropriate index.
+    int index = calculate_index(get_size(block));
+    free_lists[index] = next;
+  }
+
+  // If there's a next block, update its prev pointer.
+  if (next != NULL)
+  {
+    next->prev = prev;
+  }
+
+  // Clear the block's next and prev pointers.
+  block->next = NULL;
+  block->prev = NULL;
+}
+
+/** Simply coalesces two given blocks whilst also removing block1 from a list where it exists
+ * Takes care of updating footer and every other information
+ * Assumes block2 was just freed so exists in no free list
+ */
+Block *coalesce(Block *block1, Block *block2)
+{
+
+}
+
+/** Puts the block in the appropriate free list.
+ * Also takes care of coalescing
+ */
+void freeing(Block *block)
+{
+  bool prev_contiguous_allocated = is_prev_allocated(block);
+  bool next_contiguous_allocated = is_allocated(get_next_block(block));
+  // Coalesce with previous and next block if free
+  if (!prev_contiguous_allocated && !is_prev_fencepost(block) && !next_contiguous_allocated && !is_next_fencepost(block))
+  {
+    // Calculate the previous block using its footer
+    Footer *prev_footer = (Footer *)ADD_BYTES(block, -sizeof(Footer));
+    Block *prev_contiguous_block = (Block *)ADD_BYTES(block, -sizeof(prev_footer->size));
+    Block *next_continguous_block = (Block *)ADD_BYTES(block, block_size(block));
+    remove_from_free_list(prev_contiguous_block);
+    remove_from_free_list(next_continguous_block);
+
+    // Update the size of the block while preserving flag bits.
+    size_t flags = prev_contiguous_block->size_and_flags & ~SIZE_MASK; // Extract flag bits (excluding size).
+    prev_contiguous_block->size_and_flags = (get_size(prev_contiguous_block) + get_size(block)) + get_size(next_contiguous_allocated) | flags;
+    get_footer(next_continguous_block)->allocated = 0;
+    get_footer(next_continguous_block)->size = get_size(prev_contiguous_block);
+
+    // Add the coalesced block to the appropriate free list
+    int index = calculate_index(get_size(prev_contiguous_block));
+    // Insert the coalesced block at the head of the free list
+    Block *first_in_list = free_lists[index];
+
+    if (first_in_list != NULL)
+    {
+      first_in_list->prev = prev_contiguous_block;
+    }
+
+    prev_contiguous_block->next = first_in_list;
+    prev_contiguous_block->prev = NULL;
+
+    // Update the head of the free list
+    free_lists[index] = prev_contiguous_block;
+  }
+  // Coalesce with the previous block
+  else if (!prev_contiguous_allocated && !is_prev_fencepost(block))
+  {
+    // Calculate the previous block using its footer
+    Footer *prev_footer = (Footer *)ADD_BYTES(block, -sizeof(Footer));
+    Block *prev_contiguous_block = (Block *)ADD_BYTES(block, -sizeof(prev_footer->size));
+    remove_from_free_list(prev_contiguous_block);
+    // remove_from_list()
+    // Update the size of the block while preserving flag bits.
+    size_t flags = prev_contiguous_block->size_and_flags & ~SIZE_MASK; // Extract flag bits (excluding size).
+    prev_contiguous_block->size_and_flags = (get_size(prev_contiguous_block) + get_size(block)) | flags;
+    get_footer(block)->allocated = 0;
+    get_footer(block)->size = get_size(prev_contiguous_block);
+
+    // Add the coalesced block to the appropriate free list
+    int index = calculate_index(get_size(prev_contiguous_block));
+    // Insert the coalesced block at the head of the free list
+    Block *first_in_list = free_lists[index];
+
+    if (first_in_list != NULL)
+    {
+      first_in_list->prev = prev_contiguous_block;
+    }
+
+    prev_contiguous_block->next = first_in_list;
+    prev_contiguous_block->prev = NULL;
+
+    // Update the head of the free list
+    free_lists[index] = prev_contiguous_block;
+  }
+  else if (!next_contiguous_allocated && !is_next_fencepost(block))
+  {
+    // Calculate the next block
+    Block *next_contiguous_block = (Block *)ADD_BYTES(block, block_size(block));
+    remove_from_free_list(next_contiguous_block);
+    // remove_from_list()
+    // Update the size of the block while preserving flag bits.
+    size_t flags = block->size_and_flags & ~SIZE_MASK; // Extract flag bits (excluding size).
+    block->size_and_flags = (get_size(block) + get_size(next_contiguous_block)) | flags;
+    get_footer(next_contiguous_block)->allocated = 0;
+    get_footer(next_contiguous_block)->size = get_size(block);
+
+    // Add the coalesced block to the appropriate free list
+    int index = calculate_index(get_size(block));
+    // Insert the coalesced block at the head of the free list
+    Block *first_in_list = free_lists[index];
+
+    if (first_in_list != NULL)
+    {
+      first_in_list->prev = block;
+    }
+
+    block->next = first_in_list;
+    block->prev = NULL;
+
+    // Update the head of the free list
+    free_lists[index] = block;
+  }
+  else
+  {
+
+    // Add the coalesced block to the appropriate free list
+    int index = calculate_index(get_size(block));
+    // Insert the coalesced block at the head of the free list
+    Block *first_in_list = free_lists[index];
+
+    if (first_in_list != NULL)
+    {
+      first_in_list->prev = block;
+    }
+
+    block->next = first_in_list;
+    block->prev = NULL;
+
+    // Update the head of the free list
+    free_lists[index] = block;
+  }
+}
+
+/** Gets a chunk of a multiple of kMemorySize(= 64 MB) from the OS
  * This function should only be called when existing memory
  * can't satisfy needs or when it hasn't been requested once.
+ * Sets the index_last_chunk_from_OS.
  * Returns NULL if OS fails, sets errno to ENOMEM.
  */
-void *get_chunk_from_OS(void)
+void *get_chunk_from_OS(int multiple)
 {
-  Chunk *chunk = mmap(NULL, kMemorySize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
-  if (chunk == MAP_FAILED) {
+  if (multiple < 1)
+  {
+    errno = EINVAL; // Invalid argument
+    return NULL;
+  }
+
+  if (multiple > SIZE_MAX / kMemorySize)
+  {
+    errno = ENOMEM; // Overflow protection
+    return NULL;
+  }
+
+  Chunk *chunk = mmap(NULL, multiple * kMemorySize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+  if (chunk == MAP_FAILED)
+  {
     errno = ENOMEM;
     return NULL;
   }
+  index_last_chunk_from_OS += 1;
   chunk->fencepost = FENCEPOST;
-  //Navigate to the last of the chunk to place a fencepost at the other end too
-  uint32_t *end_fencepost = ADD_BYTES(chunk, kMemorySize - 4);
+  chunk->start = (Block *)ADD_BYTES(chunk, sizeof(Chunk));
+  Block *block = chunk->start;
+  block->size_and_flags = multiple * kMemorySize - (sizeof(Chunk));
+  block->size_and_flags &= ~ALLOC_MASK;
+  block->size_and_flags |= PREV_FREE_MASK;
+  block->next = NULL;
+  block->prev = NULL;
+  block->index = index_last_chunk_from_OS;
+  // Navigate to the last of the chunk to place a fencepost at the other end too
+  uint32_t *end_fencepost = ADD_BYTES(chunk, multiple * kMemorySize - 4);
   *end_fencepost = FENCEPOST;
-  Chunk *prev = last_chunk_from_OS();
-  chunk->next = NULL;
-  chunk->prev = prev;
-  
+  // Chunk *prev = last_chunk_from_OS();
+  // chunk->next = NULL;
+  // chunk->prev = prev;
+
   // if (prev == NULL)
   // {
   //   first_map = chunk;
   // }
-  chunk->start_free_list = (Block *)ALIGN_UP((uintptr_t)(chunk + 1), kAlignment);
-  chunk->start_free_list->size = kMemorySize - ((uintptr_t)chunk->start_free_list - (uintptr_t)chunk);
-
-  chunk->start_free_list->next = NULL;
-  chunk->start_free_list->prev = NULL;
+  // chunk->start_free_list = (Block *)ALIGN_UP((uintptr_t)(chunk + 1), kAlignment);
+  // chunk->start_free_list->size = kMemorySize - ((uintptr_t)chunk->start_free_list - (uintptr_t)chunk);
+  set_footer(block);
+  freeing(block);
+  // chunk->start->next = NULL;
+  // chunk->start->prev = NULL;
   // chunk->start_free_list->allocated = false;
-  chunk->start_alloc_list = NULL;
-  if (prev)
-  {
-    prev->next = chunk;
-  }
+  // chunk->start_alloc_list = NULL;
+  // if (prev)
+  // {
+  //   prev->next = chunk;
+  // }
   return chunk;
 }
 
@@ -123,7 +402,7 @@ Block *split_block(Block *block, size_t size)
 /** Given a chunk, finds a block in that having size closest to size.
  * size is inclusive of meta-data size
  */
-Block *best_fit_in_chunk(Chunk *chunk, size_t size) 
+Block *best_fit_in_chunk(Chunk *chunk, size_t size)
 {
   Block *search = chunk->start_free_list;
   Block *best = NULL;
@@ -165,7 +444,7 @@ Block *best_fit(size_t size)
   return best;
 }
 
-/* Transfers block from free list to allocated list of that particular chunk. */
+/* Removes a block to the appropriate */
 void mallocing(Block *block)
 {
   Chunk *assoc_chunk = chunk_from_block(block);
@@ -193,33 +472,8 @@ void mallocing(Block *block)
   block->prev = alloc_after;
 }
 
-/* Transfers block from allocated list to the free list of that particular chunk. */
-void freeing(Block *block)
-{
-  Chunk *assoc_chunk = chunk_from_block(block);
-  Block *prev_in_alloc_list = block->prev;
-  Block *next_in_alloc_list = block->next;
-  prev_in_alloc_list->next = next_in_alloc_list;
-  next_in_alloc_list->prev = prev_in_alloc_list;
-  Block *put_free_before = assoc_chunk->start_free_list;
-  if (!put_free_before)
-  {
-    assoc_chunk->start_free_list = block;
-    block->next = NULL;
-    block->prev = NULL;
-    return;
-  }
-  while (put_free_before < block)
-  {
-    put_free_before = put_free_before->next;
-  }
-  Block *put_free_after = put_free_before->prev;
-  block->next = put_free_before;
-  block->prev = put_free_after;
-}
-
 /* Returns a pointer to the block of memory satisfying size. */
-void *my_malloc(size_t size) 
+void *my_malloc(size_t size)
 {
   if (!size)
   {
@@ -246,7 +500,8 @@ void *my_malloc(size_t size)
   if (best_fit_block->size == total_size || (best_fit_block->size - total_size) < (kMinAllocationSize + sizeof(Block)))
   {
     mallocing(best_fit_block);
-  } else 
+  }
+  else
   {
     best_fit_block = split_block(best_fit_block, total_size);
     mallocing(best_fit_block);
@@ -254,7 +509,8 @@ void *my_malloc(size_t size)
   return (void *)(best_fit_block + 1);
 }
 
-void my_free(void *ptr) {
+void my_free(void *ptr)
+{
   return;
 }
 
@@ -268,15 +524,15 @@ void my_free(void *ptr) {
  **/
 int is_free(Block *block)
 {
-  if (!block) 
+  if (!block)
   {
     return 0;
   }
   Chunk *chunk = chunk_from_block(block);
   Block *curr = chunk->start_free_list;
-  while (curr != NULL) 
+  while (curr != NULL)
   {
-    if (curr == block) 
+    if (curr == block)
     {
       return 1;
     }
@@ -286,7 +542,8 @@ int is_free(Block *block)
 }
 
 /* Returns the size of the given block */
-size_t block_size(Block *block) {
+size_t block_size(Block *block)
+{
   return block->size;
 }
 
@@ -316,7 +573,8 @@ Block *get_start_block_in_chunk(Chunk *chunk)
 }
 
 /* Returns the first block in memory (excluding fenceposts) */
-Block *get_start_block(void) {
+Block *get_start_block(void)
+{
   return get_start_block_in_chunk(first_map);
 }
 
@@ -327,9 +585,9 @@ Block *get_next_block(Block *block)
   {
     return NULL;
   }
-  Chunk *chunk_of_block = chunk_from_block(block);
+  // Chunk *chunk_of_block = chunk_from_block(block);
   Block *next_block = ADD_BYTES(block, block_size(block));
-  if (next_block >= (Block *) ADD_BYTES(chunk_of_block, kMemorySize))
+  if (next_block >= (Block *)ADD_BYTES(chunk_of_block, kMemorySize))
   {
     if (chunk_of_block->next)
     {
@@ -343,7 +601,7 @@ Block *get_next_block(Block *block)
 /** merges block1 and block2 into one single block (effective in block1)
  * block1 and block2 must be adjacent
  * Assumes that block1 appears before block2
-*/
+ */
 void join(Block *block1, Block *block2)
 {
   block1->size = block1->size + block2->size;
@@ -355,13 +613,13 @@ void join(Block *block1, Block *block2)
   }
 }
 
-  /* Given a ptr assumed to be returned from a previous call to `my_malloc`,
-     return a pointer to the start of the metadata block. */
-  Block *ptr_to_block(void *ptr)
-  {
-    return ADD_BYTES(ptr, -((ssize_t)kMetadataSize));
-  }
+/* Given a ptr assumed to be returned from a previous call to `my_malloc`,
+   return a pointer to the start of the metadata block. */
+Block *ptr_to_block(void *ptr)
+{
+  return ADD_BYTES(ptr, -((ssize_t)kMetadataSize));
+}
 
-  int main()
-  {
-  }
+int main()
+{
+}

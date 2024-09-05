@@ -20,6 +20,13 @@
 
 #define FENCEPOST 0xDEADBEEF
 
+// Second bit for previous block alloc status
+#define PREV_FREE_MASK 0x2
+// First bit for current block allocation status
+#define ALLOC_MASK 0x1
+// Mask to extract size
+#define SIZE_MASK (~(PREV_FREE_MASK | ALLOC_MASK))
+
 /** This is the Block struct, which contains all metadata needed for your 
  *  explicit free list. You are allowed to modify this struct (and will need to 
  *  for certain optimisations) as long as you don't move the definition from 
@@ -28,12 +35,15 @@ typedef struct Block Block;
 
 struct Block {
   // Size of the block, including meta-data size.
-  size_t size;
+  // Also stores two flags : allocation status of current (Least significant bit) and previous block (Second L.S.B)
+  size_t size_and_flags;
   // Next and Prev blocks
   Block *next;
   Block *prev;
   // Is the block allocated or not?
   // bool allocated;
+  // Index to keep track of the associated Chunk
+  int index;
 };
 
 
@@ -45,13 +55,27 @@ struct Chunk
 {
   // Fencepost to detect buffer overflows
   uint32_t fencepost; 
-  Chunk *next;
-  Chunk *prev;
+
+  // Represents the starting block in a chunk (excluding Fencepost)
+  Block *start;
+
+  // Chunk *next;
+  // Chunk *prev;
 
   // This represents the start of free blocks in this memory returned by OS
-  Block *start_free_list;
+  // Block *start_free_list;
   // This represents the start of allocated blocks in this memory returned by OS
-  Block *start_alloc_list;
+  // Block *start_alloc_list;
+};
+
+/** Represents the footer for a block storing size and the allocated status
+ */
+typedef struct Footer Footer;
+
+struct Footer
+{
+  size_t size;
+  bool allocated;
 };
 
 // Word alignment
