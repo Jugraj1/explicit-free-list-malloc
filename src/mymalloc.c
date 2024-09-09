@@ -1,4 +1,6 @@
 #include "mymalloc.h"
+#include "../tests/testing.h"
+#include <string.h>
 
 // Word alignment
 const size_t kAlignment = sizeof(size_t);
@@ -17,6 +19,7 @@ const size_t kMemorySize = (64ull << 20);
 
 // Chunk *first_map = NULL;
 Chunk *ch_array[MAX_REQ] = {NULL};
+size_t corr_size_arr[MAX_REQ];
 
 // An array of free lists, where each entry corresponds to a range of block sizes.
 // The 0th item contains blocks for sizes 1 to 8 bytes.
@@ -26,12 +29,24 @@ Block *free_lists[N_LISTS];
 // Global variable to track the last chunk
 int index_last_chunk_from_OS = -1;
 
+/** Note that this function only works if `alignment` is a power of 2. **/
+static inline size_t round_up(size_t size, size_t alignment)
+{
+  const size_t mask = alignment - 1;
+  return (size + mask) & ~mask;
+}
+
 /** Returns the appropriate index of a free list
  * that might contain a block of given size or bigger.
  */
 int calculate_index(size_t size)
 {
-  return (size + kAlignment - 1) / kAlignment - 1;
+  int index = (size + kAlignment) / kAlignment - 1;
+  if (index >= N_LISTS)
+  {
+    index = N_LISTS - 1;
+  }
+  return index;
 }
 
 /** Returns a pointer to the last (most recent) memory chunk
@@ -67,6 +82,10 @@ void set_size(Block *block, size_t size)
 /* Checks whether the given block is allocated or not. */
 bool is_allocated(Block *block)
 {
+  if (!block)
+  {
+    return true;
+  }
   return block->size_and_flags & ALLOC_MASK;
 }
 
@@ -121,7 +140,7 @@ Footer *get_footer(Block *free_block)
 bool is_prev_fencepost(Block *block)
 {
   // Get the address of the potential fencepost (which is a `uint32_t` value).
-  uint32_t *possible_fencepost = (uint32_t *)ADD_BYTES(block, -sizeof(uint32_t));
+  uint32_t *possible_fencepost = (uint32_t *)ADD_BYTES(block, -sizeof(Chunk));
 
   // Check if the previous block is a fencepost.
   return *possible_fencepost == FENCEPOST;
@@ -137,7 +156,9 @@ bool is_next_fencepost(Block *block)
   return *possible_fencepost == FENCEPOST;
 }
 
-/* Removes the block from the appropriate free list*/
+/** Removes the block from the appropriate free list
+ * Does not change the allocation status
+*/
 void remove_from_free_list(Block *block)
 {
   Block *prev = block->prev;
@@ -184,14 +205,19 @@ void coalesce(Block *block1, Block *block2)
 }
 
 /** Puts the given block in the appropriate free list (no check for neighbouring blocks for coalescing).
+ *  Assumes status has been set already
  * Assumes that the given block is already coalesced.
  */
-put_block_in_free_list(Block *block)
+void put_block_in_free_list(Block *block)
 {
   int index = calculate_index(get_size(block));
   // Insert the coalesced block at the head of the free list
+  if (index >= N_LISTS)
+  {
+    index = N_LISTS - 1;
+  }
   Block *first_in_list = free_lists[index];
-  set_allocation_status(first_in_list, 0, 1);
+  // set_allocation_status(first_in_list, 0, 1);
 
   if (first_in_list != NULL)
   {
@@ -203,22 +229,22 @@ put_block_in_free_list(Block *block)
 
   // Update the head of the free list
   free_lists[index] = block;
-  set_allocation_status(first_in_list, 0, 0);
+  // set_allocation_status(first_in_list, 0, 0);
 }
 
 /** Puts the block in the appropriate free list mainly taking care of logic coalescing
  * Also takes care of coalescing
+ * assumes block has updated alocation status as free
  */
-void freeing(Block *block)
+void freeing_up(Block *block)
 {
   bool prev_contiguous_allocated = is_prev_allocated(block);
   bool next_contiguous_allocated = is_allocated(get_next_block(block));
-  // Coalesce with previous and next block if free
   if (!prev_contiguous_allocated && !is_prev_fencepost(block) && !next_contiguous_allocated && !is_next_fencepost(block))
   {
     // Calculate the previous block using its footer
     Footer *prev_footer = (Footer *)ADD_BYTES(block, -sizeof(Footer));
-    Block *prev_contiguous_block = (Block *)ADD_BYTES(block, -sizeof(prev_footer->size));
+    Block *prev_contiguous_block = (Block *)ADD_BYTES(block, -prev_footer->size);
     Block *next_continguous_block = (Block *)ADD_BYTES(block, block_size(block));
     coalesce(prev_contiguous_block, block);
     coalesce(prev_contiguous_block, next_continguous_block);
@@ -229,7 +255,7 @@ void freeing(Block *block)
   {
     // Calculate the previous block using its footer
     Footer *prev_footer = (Footer *)ADD_BYTES(block, -sizeof(Footer));
-    Block *prev_contiguous_block = (Block *)ADD_BYTES(block, -sizeof(prev_footer->size));
+    Block *prev_contiguous_block = (Block *)ADD_BYTES(block, -prev_footer->size);
     coalesce(prev_contiguous_block, block);
     put_block_in_free_list(prev_contiguous_block);
   }
@@ -274,20 +300,23 @@ void *get_chunk_from_OS(int multiple)
   }
   index_last_chunk_from_OS += 1;
   chunk->fencepost = FENCEPOST;
-  chunk->start = (Block *)ADD_BYTES(chunk, sizeof(Chunk));
+  chunk->start = (Block *)ALIGN_UP((uintptr_t)ADD_BYTES(chunk, sizeof(Chunk)), kAlignment);
+
   Block *block = chunk->start;
-  block->size_and_flags = multiple * kMemorySize - (sizeof(Chunk));
-  block->size_and_flags &= ~ALLOC_MASK;
-  block->size_and_flags |= PREV_FREE_MASK;
+  set_size(block, round_up(multiple * kMemorySize - ((uintptr_t)block - (uintptr_t)chunk) - sizeof(FENCEPOST), kAlignment));
+  set_allocation_status(block, 0, 1);
+  set_allocation_status(block, 1, 0);
+
   block->next = NULL;
   block->prev = NULL;
   block->index = index_last_chunk_from_OS;
   // Navigate to the last of the chunk to place a fencepost at the other end too
-  uint32_t *end_fencepost = ADD_BYTES(chunk, multiple * kMemorySize - 4);
+  uint32_t *end_fencepost = ADD_BYTES(chunk, multiple * kMemorySize - sizeof(FENCEPOST));
   *end_fencepost = FENCEPOST;
   ch_array[index_last_chunk_from_OS] = chunk;
+  corr_size_arr[index_last_chunk_from_OS] = multiple * kMemorySize;
   set_footer(block);
-  freeing(block);
+  freeing_up(block);
   return chunk;
 }
 
@@ -302,29 +331,26 @@ Chunk *chunk_from_block(Block *block)
   return ch_array[block->index];
 }
 
-/** Note that this function only works if `alignment` is a power of 2. **/
-static inline size_t round_up(size_t size, size_t alignment)
-{
-  const size_t mask = alignment - 1;
-  return (size + mask) & ~mask;
-}
-
-/** Splits the block starting at the given address into two
+/** Splits a free block starting at the given address into two free blocks
  * Assumes size includes metadata size
  * Returns the one which is higher in memory
  */
 Block *split_block(Block *block, size_t size)
 {
-  remove_from_free_list(block);
+  // remove_from_free_list(block);
   size_t original_size = get_size(block);
   set_size(block, original_size - size);
+  set_allocation_status(block, 0, 1);
   set_footer(block);
-  put_block_in_free_list(block);
+  // put_block_in_free_list(block);
 
   Block *right = get_next_block(block);
   set_size(right, size);
+  set_allocation_status(right, 0, 1);
   set_footer(right);
-  put_block_in_free_list(right);
+  // put_block_in_free_list(right);
+
+  set_allocation_status(right, 0, 0);
 
   return right;
 }
@@ -369,7 +395,9 @@ Block *list_fit(Block *base, size_t size)
   return best;
 }
 
-/* Returns the smallest suitable free block by searching the appropriate free lists. */
+/** Returns the smallest suitable free block by searching the appropriate free lists.
+ * does not remove the block from the list
+ */
 Block *best_fit(size_t size)
 {
   int index = calculate_index(size);
@@ -383,11 +411,6 @@ Block *best_fit(size_t size)
       {
         break;
       }
-    }
-    if (!possible)
-    {
-      get_chunk_from_OS(size / kMemorySize);
-      possible = free_lists[calculate_index(size - sizeof(Chunk))];
     }
   }
   return possible;
@@ -428,28 +451,98 @@ void *my_malloc(size_t size)
   {
     return NULL;
   }
-  size_t total_size = round_up(size + sizeof(Block), kAlignment);
+  if (size == 0)
+  {
+    return NULL;
+  }
+  if (size > kMaxAllocationSize)
+  {
+    return NULL;
+  }
+  size_t total_size = round_up(size + kMetadataSize, kAlignment);
   if (index_last_chunk_from_OS == -1)
   {
-    Chunk *chunk = get_chunk_from_OS(total_size / kMemorySize);
+    Chunk *chunk = get_chunk_from_OS((total_size + sizeof(FENCEPOST) + sizeof(Chunk) + kMemorySize - 1) / kMemorySize);
   }
-  int possible_index = calculate_index(total_size);
+  // int possible_index = calculate_index(total_size);
   Block *best_fit_block = best_fit(total_size);
-  if (get_size(best_fit_block) == total_size || get_size((best_fit_block) - total_size) < (kMinAllocationSize + sizeof(Block)))
+
+  if (!best_fit_block)
+  {
+    get_chunk_from_OS((total_size + kMemorySize - 1) / kMemorySize);
+    return my_malloc(size);
+  }
+  if (!is_next_fencepost(best_fit_block) && get_next_block(best_fit_block) != NULL)
+  {
+    set_allocation_status(get_next_block(best_fit_block), 1, 0);
+  }
+  if (get_size(best_fit_block) == total_size || get_size(best_fit_block) - total_size < (kMinAllocationSize + sizeof(Block)))
   {
     remove_from_free_list(best_fit_block);
+    set_allocation_status(best_fit_block, 1, 1);
   }
   else
   {
-    best_fit_block = split_block(best_fit_block, total_size);
     remove_from_free_list(best_fit_block);
+    best_fit_block = split_block(best_fit_block, total_size);
+    set_allocation_status(best_fit_block, 1, 1);
+    // set_allocation_status(best_fit_block, 0, 0);
+    // The previous block is still free
+    // set_allocation_status(best_fit_block, 0, 0);
+    Footer *prev_footer = (Footer *)ADD_BYTES(best_fit_block, -sizeof(Footer));
+    Block *prev_contiguous_block = (Block *)ADD_BYTES(best_fit_block, -prev_footer->size);
+    freeing_up(prev_contiguous_block);
+    // remove_from_free_list(best_fit_block);
   }
+  
+
   return (void *)(best_fit_block + 1);
 }
 
+
+bool is_valid(void *ptr)
+{
+  // free called when memory allocator has not been initialised
+  if (index_last_chunk_from_OS < 0)
+  {
+    return false;
+  }
+  for (int i = index_last_chunk_from_OS; i>=0; i--)
+  {
+    Chunk *curr = ch_array[i];
+    size_t chunk_size = corr_size_arr[i];
+    if ((void *)curr->start < (void *)ptr && (void *)ptr < (void *)ADD_BYTES(curr->start, chunk_size))
+    {
+      return true;
+    }
+  }
+  return false;
+}
+
+
+// TODO: handle thw two cases mentioned in spec
 void my_free(void *ptr)
 {
-  return;
+  if (!ptr)
+  {
+    return;
+  }
+  if (!is_valid(ptr))
+  {
+    return;
+  }
+  Block *block = ptr_to_block(ptr);
+  // if (get_size(block) == 0)
+  // {
+  //   return;
+  // }
+  set_allocation_status(block, 0, 1);
+  set_footer(block);
+  if (!is_next_fencepost(block) && get_next_block(block) != NULL)
+  {
+    set_allocation_status(get_next_block(block), 0, 0);
+  }
+  freeing_up(block);
 }
 
 /** These are helper functions you are required to implement for internal testing
@@ -465,17 +558,9 @@ int is_free(Block *block)
   {
     return 0;
   }
-  int index = calculate_index(get_size(block));
-  Block *check = free_lists[index];
-  while (check)
-  {
-    if (check == block)
-    {
-      return 1;
-    }
-    check = check->next;
-  }
-  return 0;
+
+  // Check the allocation status flag
+  return !is_allocated(block);
 }
 
 /* Returns the size of the given block */
@@ -500,13 +585,15 @@ Block *get_next_block(Block *block)
   // Chunk *chunk_of_block = chunk_from_block(block);
   Block *next_block = ADD_BYTES(block, block_size(block));
   // It shiould be a multiple of kMemorySize, find a way to get its size
-  if (next_block >= (Block *)ADD_BYTES(ch_array[block->index], kMemorySize))
+  size_t chunk_size = corr_size_arr[block->index];
+  if (next_block >= (Block *)ADD_BYTES(ch_array[block->index], chunk_size))
   {
-    if (block->index < MAX_REQ)
+    if (block->index + 1 < MAX_REQ && ch_array[block->index + 1])
     {
-      return ch_array[block->index]->start;
+      // Move to the next chunk's start
+      return ch_array[block->index + 1]->start;
     }
-    return NULL;
+    return NULL; // No more chunks
   }
   return next_block;
 }
@@ -518,6 +605,34 @@ Block *ptr_to_block(void *ptr)
   return ADD_BYTES(ptr, -((ssize_t)kMetadataSize));
 }
 
-int main()
+bool is_word_aligned(void *ptr)
 {
+  return (((size_t)ptr) & (sizeof(size_t) - 1)) == 0;
+}
+
+int sizes[] = {123, 456, 1, 8, 8, 8, 56, 8, 12, 67, 32497, 123, 456, 8, 8, 8, 6, 6, 6, 12, 12};
+void *pointers[21];
+
+int main(void)
+{
+  for (int i = 1; i <= 21; i++)
+  {
+    for (int j = 0; j < i; j++)
+    {
+      pointers[j] = mallocing(sizes[j]);
+      memset(pointers[j], j, sizes[j]);
+    }
+
+    if (i % 2 == 0)
+    {
+      for (int j = i - 1; j >= 0; j--)
+        freeing(pointers[j]);
+    }
+    else
+    {
+      for (int j = 0; j < i; j++)
+        freeing(pointers[j]);
+    }
+  }
+  return 0;
 }
