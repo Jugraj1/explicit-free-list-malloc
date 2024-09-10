@@ -17,6 +17,11 @@ const size_t kMemorySize = (64ull << 20);
 
 #define ALIGN_UP(addr, align) (((addr) + (align) - 1) & ~((align) - 1))
 
+size_t round_down(size_t size, size_t alignment)
+{
+  return size & ~(alignment - 1);
+}
+
 // Chunk *first_map = NULL;
 Chunk *ch_array[MAX_REQ] = {NULL};
 size_t corr_size_arr[MAX_REQ];
@@ -158,9 +163,27 @@ bool is_next_fencepost(Block *block)
 
 /** Removes the block from the appropriate free list
  * Does not change the allocation status
+ * Also does nothing if block is not in any of the free list (safety check)
 */
 void remove_from_free_list(Block *block)
 {
+  if (!block)
+    return;
+
+  // Find if the block is in the free list.
+  int index = calculate_index(get_size(block));
+  Block *curr = free_lists[index];
+  while (curr != NULL && curr != block)
+  {
+    curr = curr->next;
+  }
+
+  // If block is not found in the free list, return early
+  if (curr == NULL)
+  {
+    return;
+  }
+
   Block *prev = block->prev;
   Block *next = block->next;
 
@@ -172,8 +195,6 @@ void remove_from_free_list(Block *block)
   else
   {
     // Handle case where the block is the head of the free list.
-    // free_lists[] is the array of free list heads, so find the appropriate index.
-    int index = calculate_index(get_size(block));
     free_lists[index] = next;
   }
 
@@ -239,8 +260,15 @@ void put_block_in_free_list(Block *block)
 void freeing_up(Block *block)
 {
   bool prev_contiguous_allocated = is_prev_allocated(block);
-  bool next_contiguous_allocated = is_allocated(get_next_block(block));
-  if (!prev_contiguous_allocated && !is_prev_fencepost(block) && !next_contiguous_allocated && !is_next_fencepost(block))
+  bool next_contiguous_allocated;
+  bool next_fence = is_next_fencepost(block);
+  if (next_fence) {
+    next_contiguous_allocated = true;
+  } else {
+    next_contiguous_allocated = is_allocated(get_next_block(block));
+  }
+
+  if (!prev_contiguous_allocated && !is_prev_fencepost(block) && !next_fence && !next_contiguous_allocated)
   {
     // Calculate the previous block using its footer
     Footer *prev_footer = (Footer *)ADD_BYTES(block, -sizeof(Footer));
@@ -303,7 +331,7 @@ void *get_chunk_from_OS(int multiple)
   chunk->start = (Block *)ALIGN_UP((uintptr_t)ADD_BYTES(chunk, sizeof(Chunk)), kAlignment);
 
   Block *block = chunk->start;
-  set_size(block, round_up(multiple * kMemorySize - ((uintptr_t)block - (uintptr_t)chunk) - sizeof(FENCEPOST), kAlignment));
+  set_size(block, round_up(multiple * kMemorySize - ((char *)block - (char *)chunk) - sizeof(FENCEPOST), kAlignment));
   set_allocation_status(block, 0, 1);
   set_allocation_status(block, 1, 0);
 
@@ -340,12 +368,15 @@ Block *split_block(Block *block, size_t size)
   // remove_from_free_list(block);
   size_t original_size = get_size(block);
   set_size(block, original_size - size);
+  Block *right = get_next_block(block);
+  // printf("Block right's address after splitting :%p \n", right);
+  right->index = block->index;
+  set_size(right, size);
   set_allocation_status(block, 0, 1);
   set_footer(block);
   // put_block_in_free_list(block);
 
-  Block *right = get_next_block(block);
-  set_size(right, size);
+  
   set_allocation_status(right, 0, 1);
   set_footer(right);
   // put_block_in_free_list(right);
@@ -381,18 +412,24 @@ Block *list_fit(Block *base, size_t size)
 {
   Block *best = NULL;
   Block *curr = base;
-  size_t diff = SIZE_MAX;
+  size_t diff = SIZE_MAX; // Keep this as size_t to track the smallest suitable block
+
   while (curr)
   {
-    size_t calc_diff = get_size(curr) - size;
-    if (calc_diff >= 0 && calc_diff < diff)
+    ssize_t calc_diff = get_size(curr) - size;
+    // printf("Checking block size: %zu, requested size: %zu, calc_diff: %zd\n", get_size(curr), size, calc_diff);
+    // printf("Address of block: %p\n", curr);
+
+    // Ensure the block is large enough and has the smallest diff (best fit)
+    if (calc_diff >= 0 && (size_t)calc_diff < diff) // Ensure block is large enough and smaller than current best
     {
       best = curr;
-      diff = calc_diff;
+      diff = (size_t)calc_diff; // Update diff with the current smallest difference
     }
     curr = curr->next;
   }
-  return best;
+
+  return best; // This will return a block that is >= requested size
 }
 
 /** Returns the smallest suitable free block by searching the appropriate free lists.
@@ -470,8 +507,9 @@ void *my_malloc(size_t size)
   if (!best_fit_block)
   {
     get_chunk_from_OS((total_size + kMemorySize - 1) / kMemorySize);
-    return my_malloc(size);
+    best_fit_block = list_fit(free_lists[N_LISTS], total_size);
   }
+  // printf("The val of checking fence: %i\n", is_next_fencepost(best_fit_block));
   if (!is_next_fencepost(best_fit_block) && get_next_block(best_fit_block) != NULL)
   {
     set_allocation_status(get_next_block(best_fit_block), 1, 0);
@@ -486,6 +524,7 @@ void *my_malloc(size_t size)
     remove_from_free_list(best_fit_block);
     best_fit_block = split_block(best_fit_block, total_size);
     set_allocation_status(best_fit_block, 1, 1);
+    set_footer(best_fit_block);
     // set_allocation_status(best_fit_block, 0, 0);
     // The previous block is still free
     // set_allocation_status(best_fit_block, 0, 0);
@@ -538,9 +577,13 @@ void my_free(void *ptr)
   // }
   set_allocation_status(block, 0, 1);
   set_footer(block);
-  if (!is_next_fencepost(block) && get_next_block(block) != NULL)
+  size_t chunk_size = corr_size_arr[block->index];
+  if (get_next_block(block) < (Block *)ADD_BYTES(ch_array[block->index], chunk_size))
   {
-    set_allocation_status(get_next_block(block), 0, 0);
+    if (!is_next_fencepost(block) && get_next_block(block) != NULL)
+    {
+      set_allocation_status(get_next_block(block), 0, 0);
+    }
   }
   freeing_up(block);
 }
@@ -586,6 +629,7 @@ Block *get_next_block(Block *block)
   Block *next_block = ADD_BYTES(block, block_size(block));
   // It shiould be a multiple of kMemorySize, find a way to get its size
   size_t chunk_size = corr_size_arr[block->index];
+  // printf("Index of the chunk: %i\n", block->index);
   if (next_block >= (Block *)ADD_BYTES(ch_array[block->index], chunk_size))
   {
     if (block->index + 1 < MAX_REQ && ch_array[block->index + 1])
@@ -605,34 +649,27 @@ Block *ptr_to_block(void *ptr)
   return ADD_BYTES(ptr, -((ssize_t)kMetadataSize));
 }
 
-bool is_word_aligned(void *ptr)
+void print_heap(void)
 {
-  return (((size_t)ptr) & (sizeof(size_t) - 1)) == 0;
-}
+  printf("---- Heap Dump ----\n");
 
-int sizes[] = {123, 456, 1, 8, 8, 8, 56, 8, 12, 67, 32497, 123, 456, 8, 8, 8, 6, 6, 6, 12, 12};
-void *pointers[21];
-
-int main(void)
-{
-  for (int i = 1; i <= 21; i++)
+  for (int i = 0; i <= index_last_chunk_from_OS; i++)
   {
-    for (int j = 0; j < i; j++)
-    {
-      pointers[j] = mallocing(sizes[j]);
-      memset(pointers[j], j, sizes[j]);
-    }
+    printf("Chunk %d (address: %p):\n", i, ch_array[i]);
 
-    if (i % 2 == 0)
+    Block *curr = ch_array[i]->start;
+    size_t chunk_size = corr_size_arr[i];
+    while ((void *)curr < ADD_BYTES(ch_array[i], chunk_size) && curr)
     {
-      for (int j = i - 1; j >= 0; j--)
-        freeing(pointers[j]);
-    }
-    else
-    {
-      for (int j = 0; j < i; j++)
-        freeing(pointers[j]);
+      // Get the allocation status
+      bool allocated = is_allocated(curr);
+      size_t size = get_size(curr);
+      printf("  Block at address %p | Size: %zu | %s\n", (void *)curr, size, allocated ? "Allocated" : "Free");
+
+      // Move to the next block
+      curr = get_next_block(curr);
     }
   }
-  return 0;
+
+  printf("-------------------\n");
 }
