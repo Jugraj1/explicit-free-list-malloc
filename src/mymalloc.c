@@ -2,8 +2,8 @@
 #include "../tests/testing.h"
 #include <string.h>
 
-// Word alignment
-const size_t kAlignment = sizeof(size_t);
+    // Word alignment
+    const size_t kAlignment = sizeof(size_t);
 // Minimum allocation size (1 word)
 const size_t kMinAllocationSize = kAlignment;
 // Size of meta-data per Block
@@ -34,7 +34,7 @@ Block *free_lists[N_LISTS];
 // Global variable to track the last chunk
 int index_last_chunk_from_OS = -1;
 
-/** Note that this function only works if `alignment` is a power of 2. **/
+/** Note that this function only works if alignment is a power of 2. **/
 static inline size_t round_up(size_t size, size_t alignment)
 {
   const size_t mask = alignment - 1;
@@ -144,7 +144,7 @@ Footer *get_footer(Block *free_block)
 /* Checks whether there is a fencepost to the left of the block. */
 bool is_prev_fencepost(Block *block)
 {
-  // Get the address of the potential fencepost (which is a `uint32_t` value).
+  // Get the address of the potential fencepost (which is a uint32_t value).
   uint32_t *possible_fencepost = (uint32_t *)ADD_BYTES(block, -sizeof(Chunk));
 
   // Check if the previous block is a fencepost.
@@ -154,7 +154,7 @@ bool is_prev_fencepost(Block *block)
 /* Checks whether there is a fencepost to the right of the block. */
 bool is_next_fencepost(Block *block)
 {
-  // Get the address of the potential fencepost (which is a `uint32_t` value).
+  // Get the address of the potential fencepost (which is a uint32_t value).
   uint32_t *possible_fencepost = (uint32_t *)ADD_BYTES(block, block_size(block));
 
   // Check if the previous block is a fencepost.
@@ -164,7 +164,7 @@ bool is_next_fencepost(Block *block)
 /** Removes the block from the appropriate free list
  * Does not change the allocation status
  * Also does nothing if block is not in any of the free list (safety check)
-*/
+ */
 void remove_from_free_list(Block *block)
 {
   if (!block)
@@ -262,9 +262,12 @@ void freeing_up(Block *block)
   bool prev_contiguous_allocated = is_prev_allocated(block);
   bool next_contiguous_allocated;
   bool next_fence = is_next_fencepost(block);
-  if (next_fence) {
+  if (next_fence)
+  {
     next_contiguous_allocated = true;
-  } else {
+  }
+  else
+  {
     next_contiguous_allocated = is_allocated(get_next_block(block));
   }
 
@@ -376,7 +379,6 @@ Block *split_block(Block *block, size_t size)
   set_footer(block);
   // put_block_in_free_list(block);
 
-  
   set_allocation_status(right, 0, 1);
   set_footer(right);
   // put_block_in_free_list(right);
@@ -441,7 +443,7 @@ Block *best_fit(size_t size)
   Block *possible = list_fit(free_lists[index], size);
   if (!possible)
   {
-    for (int i = index + 1; i < N_LISTS; i++) 
+    for (int i = index + 1; i < N_LISTS; i++)
     {
       possible = list_fit(free_lists[i], size);
       if (possible)
@@ -533,11 +535,9 @@ void *my_malloc(size_t size)
     freeing_up(prev_contiguous_block);
     // remove_from_free_list(best_fit_block);
   }
-  
 
   return (void *)(best_fit_block + 1);
 }
-
 
 bool is_valid(void *ptr)
 {
@@ -546,7 +546,7 @@ bool is_valid(void *ptr)
   {
     return false;
   }
-  for (int i = index_last_chunk_from_OS; i>=0; i--)
+  for (int i = index_last_chunk_from_OS; i >= 0; i--)
   {
     Chunk *curr = ch_array[i];
     size_t chunk_size = corr_size_arr[i];
@@ -557,7 +557,6 @@ bool is_valid(void *ptr)
   }
   return false;
 }
-
 
 // TODO: handle thw two cases mentioned in spec
 void my_free(void *ptr)
@@ -642,7 +641,7 @@ Block *get_next_block(Block *block)
   return next_block;
 }
 
-/* Given a ptr assumed to be returned from a previous call to `my_malloc`,
+/* Given a ptr assumed to be returned from a previous call to my_malloc,
    return a pointer to the start of the metadata block. */
 Block *ptr_to_block(void *ptr)
 {
@@ -673,4 +672,3 @@ void print_heap(void)
 
   printf("-------------------\n");
 }
-
