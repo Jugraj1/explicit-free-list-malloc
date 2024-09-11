@@ -37,9 +37,13 @@ struct Block {
   // Size of the block, including meta-data size.
   // Also stores two flags : allocation status of current (Least significant bit) and previous block (Second L.S.B)
   size_t size_and_flags;
+
+  // Offset that will show how far is the next free block from this one (0 shows none)
+  int32_t next_offset;
+
   // Next and Prev blocks
-  Block *next;
-  Block *prev;
+  // Block *next;
+  // Block *prev;
   // Is the block allocated or not?
   // bool allocated;
   // Index to keep track of the associated Chunk
