@@ -26,6 +26,10 @@
 #define ALLOC_MASK 0x1
 // Mask to extract size
 #define SIZE_MASK (~(PREV_FREE_MASK | ALLOC_MASK))
+// Use the most significant bit for the mark flag
+#define MARK_BIT (1 << 31)
+// Mask to get the chunk index
+#define CHUNK_MASK (~MARK_BIT) 
 
 /** This is the Block struct, which contains all metadata needed for your 
  *  explicit free list. You are allowed to modify this struct (and will need to 
@@ -47,7 +51,7 @@ struct Block {
   // Is the block allocated or not?
   // bool allocated;
   // Index to keep track of the associated Chunk
-  int index;
+  int markFlag_index;
 };
 
 

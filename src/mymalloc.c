@@ -2,7 +2,6 @@
 #include "../tests/testing.h"
 #include <string.h>
 
-//MARK AS WORKING
 // Word alignment
 const size_t kAlignment = sizeof(size_t);
 // Minimum allocation size (1 word)
@@ -71,6 +70,39 @@ int calculate_index(size_t size)
 // }
 // return last;
 // }
+
+/* Used to mark a block as reachable **for gc** */
+void mark_block(Block *block)
+{
+  block->markFlag_index |= MARK_BIT;
+}
+
+/* Returns true if the given block could be reached */
+bool is_marked(Block *block)
+{
+  return block->markFlag_index & MARK_BIT;
+}
+
+/* Marks a block as unreachable **for gc** */
+void unmark_block(Block *block)
+{
+  block->markFlag_index &= ~MARK_BIT;
+}
+
+/* Used to extract the chunk index. */
+int get_chunk_index(Block *block)
+{
+  return block->markFlag_index & CHUNK_MASK;
+}
+
+void set_chunk_index(Block *block, int chunk_index)
+{
+  // Clear the existing chunk index by ANDing with the inverse of the CHUNK_MASK
+  block->markFlag_index &= ~CHUNK_MASK;
+
+  // OR the chunk_index with the current index ensuring that the MARK_BIT is preserved
+  block->markFlag_index |= (chunk_index & CHUNK_MASK);
+}
 
 /* Calculates the size of the block. */
 size_t get_size(Block *block)
@@ -174,7 +206,7 @@ bool is_prev_outside_chunk(Block *block)
   // uint32_t *possible_fencepost = (uint32_t *)ADD_BYTES(block, -sizeof(Chunk));
 
   // Check if the previous block is a fencepost.
-  return block==ch_array[block->index]->start;
+  return block==ch_array[get_chunk_index(block)]->start;
 }
 
 /* Checks whether the block next to the given block falls out of the chunk to which thegivenblock belongs */
@@ -182,7 +214,7 @@ bool is_next_outside_chunk(Block *block)
 {
   // Get the address of the potential fencepost (which is a uint32_t value).
   Block *next = get_next_block(block);
-  if (!next || (void *)next >= ch_array[block->index]->end)
+  if (!next || (void *)next >= ch_array[get_chunk_index(block)]->end)
   {
     return true;
   }
@@ -380,7 +412,8 @@ void *get_chunk_from_OS(int multiple)
   // block->next = NULL;
   set_next_off(block, NULL);
   // block->prev = NULL;
-  block->index = index_last_chunk_from_OS;
+  // block->index = index_last_chunk_from_OS;
+  set_chunk_index(block, index_last_chunk_from_OS);
   // Navigate to the last of the chunk to place a fencepost at the other end too
   // uint32_t *end_fencepost = ADD_BYTES(chunk, multiple * kMemorySize - sizeof(FENCEPOST));
   // *end_fencepost = FENCEPOST;
@@ -399,7 +432,7 @@ Chunk *chunk_from_block(Block *block)
   {
     return NULL;
   }
-  return ch_array[block->index];
+  return ch_array[get_chunk_index(block)];
 }
 
 /** Splits a free block starting at the given address into two free blocks
@@ -413,7 +446,8 @@ Block *split_block(Block *block, size_t size)
   set_size(block, original_size - size);
   Block *right = get_next_block(block);
   // printf("Block right's address after splitting :%p \n", right);
-  right->index = block->index;
+  // right->index = get_chunk_index(block);
+  set_chunk_index(right, get_chunk_index(block));
   set_size(right, size);
   set_allocation_status(block, 0, 1);
   set_footer(block);
@@ -618,8 +652,8 @@ void my_free(void *ptr)
   set_allocation_status(block, 0, 1);
   // put_block_in_free_list(block, calculate_index(get_size(block))); //this can be an issue
   set_footer(block);
-  size_t chunk_size = corr_size_arr[block->index];
-  if (get_next_block(block) < (Block *)ADD_BYTES(ch_array[block->index], chunk_size))
+  size_t chunk_size = corr_size_arr[get_chunk_index(block)];
+  if (get_next_block(block) < (Block *)ADD_BYTES(ch_array[get_chunk_index(block)], chunk_size))
   {
     if (!is_next_outside_chunk(block) && get_next_block(block) != NULL)
     {
@@ -669,14 +703,14 @@ Block *get_next_block(Block *block)
   // Chunk *chunk_of_block = chunk_from_block(block);
   Block *next_block = ADD_BYTES(block, block_size(block));
   // It shiould be a multiple of kMemorySize, find a way to get its size
-  size_t chunk_size = corr_size_arr[block->index];
+  size_t chunk_size = corr_size_arr[get_chunk_index(block)];
   // printf("Index of the chunk: %i\n", block->index);
-  if (next_block >= (Block *)ADD_BYTES(ch_array[block->index], chunk_size))
+  if (next_block >= (Block *)ADD_BYTES(ch_array[get_chunk_index(block)], chunk_size))
   {
-    if (block->index + 1 < MAX_REQ && ch_array[block->index + 1])
+    if (get_chunk_index(block) + 1 < MAX_REQ && ch_array[get_chunk_index(block) + 1])
     {
       // Move to the next chunk's start
-      return ch_array[block->index + 1]->start;
+      return ch_array[get_chunk_index(block) + 1]->start;
     }
     return NULL; // No more chunks
   }
@@ -748,4 +782,9 @@ void print_chunk(void)
   }
 
   printf("---------------------\n");
+}
+
+int main(void)
+{
+  printf("the size of the block struct is : %lu\n", sizeof(Block));
 }
