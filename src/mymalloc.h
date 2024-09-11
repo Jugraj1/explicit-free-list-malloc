@@ -54,10 +54,11 @@ typedef struct Chunk Chunk;
 struct Chunk
 {
   // Fencepost to detect buffer overflows
-  uint32_t fencepost; 
+  // uint32_t fencepost; 
 
-  // Represents the starting block in a chunk (excluding Fencepost)
-  Block *start;
+  // Represents the start of the first block
+  void *start;
+  void *end; // This will be the address which is right after the last allocable block 
 
   // Chunk *next;
   // Chunk *prev;

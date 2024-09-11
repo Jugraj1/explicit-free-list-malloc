@@ -141,24 +141,26 @@ Footer *get_footer(Block *free_block)
   return footer;
 }
 
-/* Checks whether there is a fencepost to the left of the block. */
-bool is_prev_fencepost(Block *block)
+/* Checks whether moving to the left takes us out of the chunk. */
+bool is_prev_outside_chunk(Block *block)
 {
   // Get the address of the potential fencepost (which is a uint32_t value).
-  uint32_t *possible_fencepost = (uint32_t *)ADD_BYTES(block, -sizeof(Chunk));
+  // uint32_t *possible_fencepost = (uint32_t *)ADD_BYTES(block, -sizeof(Chunk));
 
   // Check if the previous block is a fencepost.
-  return *possible_fencepost == FENCEPOST;
+  return block==ch_array[block->index]->start;
 }
 
-/* Checks whether there is a fencepost to the right of the block. */
-bool is_next_fencepost(Block *block)
+/* Checks whether the block next to the given block falls out of the chunk to which thegivenblock belongs */
+bool is_next_outside_chunk(Block *block)
 {
   // Get the address of the potential fencepost (which is a uint32_t value).
-  uint32_t *possible_fencepost = (uint32_t *)ADD_BYTES(block, block_size(block));
-
-  // Check if the previous block is a fencepost.
-  return *possible_fencepost == FENCEPOST;
+  Block *next = get_next_block(block);
+  if (!next || (void *)next >= ch_array[block->index]->end)
+  {
+    return true;
+  }
+  return false;
 }
 
 /** Removes the block from the appropriate free list
@@ -261,7 +263,7 @@ void freeing_up(Block *block)
 {
   bool prev_contiguous_allocated = is_prev_allocated(block);
   bool next_contiguous_allocated;
-  bool next_fence = is_next_fencepost(block);
+  bool next_fence = is_next_outside_chunk(block);
   if (next_fence)
   {
     next_contiguous_allocated = true;
@@ -271,7 +273,7 @@ void freeing_up(Block *block)
     next_contiguous_allocated = is_allocated(get_next_block(block));
   }
 
-  if (!prev_contiguous_allocated && !is_prev_fencepost(block) && !next_fence && !next_contiguous_allocated)
+  if (!prev_contiguous_allocated && !is_prev_outside_chunk(block) && !next_fence && !next_contiguous_allocated)
   {
     // Calculate the previous block using its footer
     Footer *prev_footer = (Footer *)ADD_BYTES(block, -sizeof(Footer));
@@ -282,7 +284,7 @@ void freeing_up(Block *block)
     put_block_in_free_list(prev_contiguous_block, calculate_index(get_size(prev_contiguous_block)));
   }
   // Coalesce with the previous block
-  else if (!prev_contiguous_allocated && !is_prev_fencepost(block))
+  else if (!prev_contiguous_allocated && !is_prev_outside_chunk(block))
   {
     // Calculate the previous block using its footer
     Footer *prev_footer = (Footer *)ADD_BYTES(block, -sizeof(Footer));
@@ -331,11 +333,11 @@ void *get_chunk_from_OS(int multiple)
     return NULL;
   }
   index_last_chunk_from_OS += 1;
-  chunk->fencepost = FENCEPOST;
-  chunk->start = (Block *)ALIGN_UP((uintptr_t)ADD_BYTES(chunk, sizeof(Chunk)), kAlignment);
-
-  Block *block = chunk->start;
-  set_size(block, round_up(multiple * kMemorySize - ((char *)block - (char *)chunk) - sizeof(FENCEPOST), kAlignment));
+  
+  Block *block = (Block *)ALIGN_UP((uintptr_t)ADD_BYTES(chunk, sizeof(Chunk)), kAlignment);
+  chunk->start = block;
+  set_size(block, round_up(multiple * kMemorySize - ((char *)block - (char *)chunk), kAlignment));
+  chunk->end = ADD_BYTES(block, get_size(block));
   set_allocation_status(block, 0, 1);
   set_allocation_status(block, 1, 0);
 
@@ -343,8 +345,8 @@ void *get_chunk_from_OS(int multiple)
   block->prev = NULL;
   block->index = index_last_chunk_from_OS;
   // Navigate to the last of the chunk to place a fencepost at the other end too
-  uint32_t *end_fencepost = ADD_BYTES(chunk, multiple * kMemorySize - sizeof(FENCEPOST));
-  *end_fencepost = FENCEPOST;
+  // uint32_t *end_fencepost = ADD_BYTES(chunk, multiple * kMemorySize - sizeof(FENCEPOST));
+  // *end_fencepost = FENCEPOST;
   ch_array[index_last_chunk_from_OS] = chunk;
   corr_size_arr[index_last_chunk_from_OS] = multiple * kMemorySize;
   set_footer(block);
@@ -513,7 +515,7 @@ void *my_malloc(size_t size)
     best_fit_block = list_fit(free_lists[N_LISTS], total_size);
   }
   // printf("The val of checking fence: %i\n", is_next_fencepost(best_fit_block));
-  if (!is_next_fencepost(best_fit_block) && get_next_block(best_fit_block) != NULL)
+  if (!is_next_outside_chunk(best_fit_block) && get_next_block(best_fit_block) != NULL)
   {
     set_allocation_status(get_next_block(best_fit_block), 1, 0);
   }
@@ -580,7 +582,7 @@ void my_free(void *ptr)
   size_t chunk_size = corr_size_arr[block->index];
   if (get_next_block(block) < (Block *)ADD_BYTES(ch_array[block->index], chunk_size))
   {
-    if (!is_next_fencepost(block) && get_next_block(block) != NULL)
+    if (!is_next_outside_chunk(block) && get_next_block(block) != NULL)
     {
       set_allocation_status(get_next_block(block), 0, 0);
     }
@@ -707,4 +709,16 @@ void print_chunk(void)
   }
 
   printf("---------------------\n");
+}
+
+#include <stdint.h>
+#include <stdio.h>
+
+
+
+int main(void)
+{
+  int *mem1 = (int *)mallocing(sizeof(int));
+  *mem1 = 10;
+  return *mem1 - *mem1;
 }
