@@ -2,6 +2,7 @@
 #include "../tests/testing.h"
 #include <string.h>
 
+//MARK AS WORKING
     // Word alignment
     const size_t kAlignment = sizeof(size_t);
 // Minimum allocation size (1 word)
