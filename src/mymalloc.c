@@ -229,9 +229,9 @@ void coalesce(Block *block1, Block *block2)
  *  Assumes status has been set already
  * Assumes that the given block is already coalesced.
  */
-void put_block_in_free_list(Block *block)
+void put_block_in_free_list(Block *block, int index)
 {
-  int index = calculate_index(get_size(block));
+  // int index = calculate_index(get_size(block));
   // Insert the coalesced block at the head of the free list
   if (index >= N_LISTS)
   {
@@ -279,7 +279,7 @@ void freeing_up(Block *block)
     Block *next_continguous_block = (Block *)ADD_BYTES(block, block_size(block));
     coalesce(prev_contiguous_block, block);
     coalesce(prev_contiguous_block, next_continguous_block);
-    put_block_in_free_list(prev_contiguous_block);
+    put_block_in_free_list(prev_contiguous_block, calculate_index(get_size(prev_contiguous_block)));
   }
   // Coalesce with the previous block
   else if (!prev_contiguous_allocated && !is_prev_fencepost(block))
@@ -288,20 +288,21 @@ void freeing_up(Block *block)
     Footer *prev_footer = (Footer *)ADD_BYTES(block, -sizeof(Footer));
     Block *prev_contiguous_block = (Block *)ADD_BYTES(block, -prev_footer->size);
     coalesce(prev_contiguous_block, block);
-    put_block_in_free_list(prev_contiguous_block);
+    put_block_in_free_list(prev_contiguous_block, calculate_index(get_size(prev_contiguous_block)));
   }
-  else if (!next_contiguous_allocated && !is_next_fencepost(block))
+  else if (!next_contiguous_allocated && !next_fence)
   {
     // Calculate the next block
     Block *next_contiguous_block = (Block *)ADD_BYTES(block, block_size(block));
     coalesce(block, next_contiguous_block);
-    put_block_in_free_list(block);
+    put_block_in_free_list(block, calculate_index(get_size(block)));
   }
   else
   {
-    put_block_in_free_list(block);
+    put_block_in_free_list(block, calculate_index(get_size(block)));
   }
 }
+
 
 /** Gets a chunk of a multiple of kMemorySize(= 64 MB) from the OS
  * This function should only be called when existing memory
@@ -516,7 +517,7 @@ void *my_malloc(size_t size)
   {
     set_allocation_status(get_next_block(best_fit_block), 1, 0);
   }
-  if (get_size(best_fit_block) == total_size || get_size(best_fit_block) - total_size < (kMinAllocationSize + sizeof(Block)))
+  if (get_size(best_fit_block) == total_size || get_size(best_fit_block) - total_size < (kMinAllocationSize + sizeof(Block) + sizeof(Footer)))
   {
     remove_from_free_list(best_fit_block);
     set_allocation_status(best_fit_block, 1, 1);
@@ -671,4 +672,39 @@ void print_heap(void)
   }
 
   printf("-------------------\n");
+}
+
+void print_chunk(void)
+{
+  printf("---- Chunk Dump ----\n");
+
+  for (int i = 0; i <= index_last_chunk_from_OS; i++)
+  {
+    Chunk *chunk = ch_array[i];
+    size_t chunk_size = corr_size_arr[i];
+
+    // Print the chunk details
+    printf("Chunk %d (address: %p):\n", i, (void *)chunk);
+    printf("  Chunk Size: %zu bytes\n", chunk_size);
+    printf("  Start Block Address: %p\n", (void *)chunk->start);
+    printf("  Fencepost Address: %p\n", (void *)ADD_BYTES(chunk, chunk_size - sizeof(FENCEPOST)));
+    printf("  Fencepost Value: %x\n", FENCEPOST);
+
+    Block *curr_block = chunk->start;
+    while ((void *)curr_block < ADD_BYTES(chunk, chunk_size) && curr_block)
+    {
+      // Get block details
+      bool allocated = is_allocated(curr_block);
+      size_t block_size = get_size(curr_block);
+
+      // Print block details
+      printf("  Block at address %p | Size: %zu | %s\n",
+             (void *)curr_block, block_size, allocated ? "Allocated" : "Free");
+
+      // Move to the next block
+      curr_block = get_next_block(curr_block);
+    }
+  }
+
+  printf("---------------------\n");
 }
