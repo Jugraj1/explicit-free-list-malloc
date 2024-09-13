@@ -22,10 +22,15 @@ int main(void) {
   // Replace below with your own GC tests
 
   char *a = my_calloc_gc(8);
-  char *b = my_calloc_gc(16);
-  b = NULL;
+  char *b = my_calloc_gc(100);
+  char *c = my_calloc_gc(10);
+  // b = NULL;
+  char *d = my_calloc_gc(20);
+  // c = NULL;
+  // a  = NULL;
+  // d = NULL;
 
   my_gc();
-
+  print_heap();
   // At this point the block "b" should have been freed as garbage as no pointers exist to it anymore
 }

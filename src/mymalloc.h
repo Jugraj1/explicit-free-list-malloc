@@ -29,7 +29,12 @@
 // Use the most significant bit for the mark flag
 #define MARK_BIT (1 << 31)
 // Mask to get the chunk index
-#define CHUNK_MASK (~MARK_BIT) 
+#define CHUNK_MASK (~MARK_BIT)
+// Maximum number of requests from OS
+#define MAX_REQ 256
+
+// extern int index_last_chunk_from_OS;
+
 
 /** This is the Block struct, which contains all metadata needed for your 
  *  explicit free list. You are allowed to modify this struct (and will need to 
@@ -76,6 +81,8 @@ struct Chunk
   // This represents the start of allocated blocks in this memory returned by OS
   // Block *start_alloc_list;
 };
+
+// extern Chunk *ch_array[MAX_REQ];
 
 /** Represents the footer for a block storing size and the allocated status
  */

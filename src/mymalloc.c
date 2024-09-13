@@ -12,15 +12,9 @@ const size_t kMetadataSize = sizeof(Block);
 const size_t kMaxAllocationSize = (128ull << 20) - kMetadataSize;
 // Memory size that is mmapped (64 MB)
 const size_t kMemorySize = (64ull << 20);
-// Maximum number of requests from OS
-#define MAX_REQ 256
+
 
 #define ALIGN_UP(addr, align) (((addr) + (align) - 1) & ~((align) - 1))
-
-size_t round_down(size_t size, size_t alignment)
-{
-  return size & ~(alignment - 1);
-}
 
 // Chunk *first_map = NULL;
 Chunk *ch_array[MAX_REQ] = {NULL};
@@ -70,24 +64,6 @@ int calculate_index(size_t size)
 // }
 // return last;
 // }
-
-/* Used to mark a block as reachable **for gc** */
-void mark_block(Block *block)
-{
-  block->markFlag_index |= MARK_BIT;
-}
-
-/* Returns true if the given block could be reached */
-bool is_marked(Block *block)
-{
-  return block->markFlag_index & MARK_BIT;
-}
-
-/* Marks a block as unreachable **for gc** */
-void unmark_block(Block *block)
-{
-  block->markFlag_index &= ~MARK_BIT;
-}
 
 /* Used to extract the chunk index. */
 int get_chunk_index(Block *block)
@@ -576,7 +552,8 @@ void *my_malloc(size_t size)
   size_t total_size = round_up(size + kMetadataSize + sizeof(Footer), kAlignment);
   if (index_last_chunk_from_OS == -1)
   {
-    Chunk *chunk = get_chunk_from_OS((total_size + sizeof(FENCEPOST) + sizeof(Chunk) + kMemorySize - 1) / kMemorySize);
+    // Chunk *chunk = get_chunk_from_OS((total_size + sizeof(FENCEPOST) + sizeof(Chunk) + kMemorySize - 1) / kMemorySize);
+    get_chunk_from_OS((total_size + sizeof(FENCEPOST) + sizeof(Chunk) + kMemorySize - 1) / kMemorySize);
   }
   // int possible_index = calculate_index(total_size);
   Block *best_fit_block = best_fit(total_size);
