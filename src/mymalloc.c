@@ -420,10 +420,6 @@ void *my_malloc(size_t size)
   {
     return NULL;
   }
-  if (size == 0)
-  {
-    return NULL;
-  }
   if (size > kMaxAllocationSize)
   {
     return NULL;

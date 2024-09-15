@@ -57,10 +57,7 @@ int get_chunk_index(Block *block)
 
 void set_chunk_index(Block *block, int chunk_index)
 {
-  // Clear the existing chunk index by ANDing with the inverse of the CHUNK_MASK
   block->markFlag_index &= ~CHUNK_MASK;
-
-  // OR the chunk_index with the current index ensuring that the MARK_BIT is preserved
   block->markFlag_index |= (chunk_index & CHUNK_MASK);
 }
 
@@ -73,11 +70,11 @@ size_t get_size(Block *block)
 /* Sets the size of the given block while preserving other flags. */
 void set_size(Block *block, size_t size)
 {
-  size_t flags = block->size_and_flags & ~SIZE_MASK; // Extract flag bits (excluding size).
+  size_t flags = block->size_and_flags & ~SIZE_MASK;
   block->size_and_flags = size | flags;
 }
 
-/** Computes the next block in a free list.
+/** Computes the next/free block (depends on the context).
  * Returns NULL if no more free block in that list
  */
 Block *get_next_through_off(Block *block)
@@ -92,27 +89,24 @@ Block *get_next_through_off(Block *block)
 Block *get_last()
 {
   Block *curr = alloc_block_end;
-  // Traverse through the list of blocks using next_offset.
   while (curr)
   {
     Block *next_block = get_next_through_off(curr);
     if (!next_block)
     {
-      // We reached the last block, return it
       return curr;
     }
-    // Move to the next block
     curr = next_block;
   }
-  return NULL; // If the list is empty, return NULL
+  return NULL;
 }
 
-/** Sets the offset of the from block to point to the to block. */
+/** Sets the offset of the `from` block to point to the `to` block. */
 void set_next_off(Block *from, Block *to)
 {
   if (to == NULL)
   {
-    from->next_offset = 0; // Set to 0 if there's no valid 'to' block
+    from->next_offset = 0;
   }
   else
   {
@@ -180,10 +174,6 @@ Footer *get_footer(Block *free_block)
 /* Checks whether moving to the left takes us out of the chunk. */
 bool is_prev_outside_chunk(Block *block)
 {
-  // Get the address of the potential fencepost (which is a uint32_t value).
-  // uint32_t *possible_fencepost = (uint32_t *)ADD_BYTES(block, -sizeof(Chunk));
-
-  // Check if the previous block is a fencepost.
   return block == ch_array[get_chunk_index(block)]->start;
 }
 
@@ -207,26 +197,20 @@ void remove_from_free_list(Block *block)
 {
   if (!block)
     return;
-
-  // Find if the block is in the free list.
   int index = calculate_index(get_size(block));
   Block *curr = free_lists[index];
   Block *prev = NULL;
   while (curr != NULL && curr != block)
   {
-    // curr = curr->next;
     prev = curr;
-    // printf("The address of prev: %p\n", prev);
     curr = get_next_through_off(curr);
   }
 
-  // If block is not found in the free list, return early
   if (curr == NULL)
   {
     return;
   }
   Block *next = get_next_through_off(block);
-  // If there's a previous block, update its next pointer.
   if (prev != NULL)
   {
     set_next_off(prev, next);
@@ -248,32 +232,25 @@ void remove_from_alloc_list(Block *block)
   if (!block)
     return;
 
-  // Find if the block is in the alloc list.
-  // int index = calculate_index(get_size(block));
   Block *curr = alloc_block_end;
   Block *prev = NULL;
   while (curr != NULL && curr != block)
   {
-    // curr = curr->next;
     prev = curr;
-    // printf("The address of prev: %p\n", prev);
     curr = get_next_through_off(curr);
   }
 
-  // If block is not found in the alloc list, return early
   if (curr == NULL)
   {
     return;
   }
   Block *next = get_next_through_off(block);
-  // If there's a previous block, update its next pointer.
   if (prev != NULL)
   {
     set_next_off(prev, next);
   }
   else
   {
-    // Handle case where the block is the head of the free list.
     alloc_block_end = next;
   }
   set_next_off(block, NULL);
@@ -288,10 +265,8 @@ void coalesce(Block *block1, Block *block2)
   remove_from_free_list(block2);
   // Update the size of the block while preserving flag bits.
   set_size(block1, get_size(block1) + get_size(block2));
-  // next and prev could be safely set to null as would be taken care of in freeing
-  // block1->next = NULL;
+  // next could be safely set to null as would be taken care of in freeing
   set_next_off(block1, NULL);
-  // block1->prev = NULL;
   get_footer(block1)->size = get_size(block1);
   get_footer(block1)->allocated = 0;
 }
@@ -302,27 +277,10 @@ void coalesce(Block *block1, Block *block2)
  */
 void put_block_in_free_list(Block *block, int index)
 {
-  // int index = calculate_index(get_size(block));
-  // Insert the coalesced block at the head of the free list
-  if (index >= N_LISTS)
-  {
-    index = N_LISTS - 1;
-  }
   Block *first_in_list = free_lists[index];
-  // set_allocation_status(first_in_list, 0, 1);
-
-  // if (first_in_list != NULL)
-  // {
-  //   first_in_list->prev = block;
-  // }
-
-  // block->next = first_in_list;
   set_next_off(block, first_in_list); 
-  // block->prev = NULL;
-
   // Update the head of the free list
   free_lists[index] = block;
-  // set_allocation_status(first_in_list, 0, 0);
 }
 
 /** Puts the block in the appropriate free list mainly taking care of logic coalescing
@@ -410,14 +368,8 @@ void *get_chunk_from_OS(int multiple)
   set_allocation_status(block, 0, 1);
   set_allocation_status(block, 1, 0);
 
-  // block->next = NULL;
   set_next_off(block, NULL);
-  // block->prev = NULL;
-  // block->index = index_last_chunk_from_OS;
   set_chunk_index(block, index_last_chunk_from_OS);
-  // Navigate to the last of the chunk to place a fencepost at the other end too
-  // uint32_t *end_fencepost = ADD_BYTES(chunk, multiple * kMemorySize - sizeof(FENCEPOST));
-  // *end_fencepost = FENCEPOST;
   ch_array[index_last_chunk_from_OS] = chunk;
   corr_size_arr[index_last_chunk_from_OS] = multiple * kMemorySize;
   set_footer(block);
@@ -446,17 +398,13 @@ Block *split_block(Block *block, size_t size)
   size_t original_size = get_size(block);
   set_size(block, original_size - size);
   Block *right = get_next_block(block);
-  // printf("Block right's address after splitting :%p \n", right);
-  // right->index = get_chunk_index(block);
   set_chunk_index(right, get_chunk_index(block));
   set_size(right, size);
   set_allocation_status(block, 0, 1);
   set_footer(block);
-  // put_block_in_free_list(block);
 
   set_allocation_status(right, 0, 1);
   set_footer(right);
-  // put_block_in_free_list(right);
 
   set_allocation_status(right, 0, 0);
 
@@ -473,20 +421,18 @@ Block *list_fit(Block *base, size_t size)
   while (curr)
   {
     ssize_t calc_diff = get_size(curr) - size;
-    // printf("Checking block size: %zu, requested size: %zu, calc_diff: %zd\n", get_size(curr), size, calc_diff);
-    // printf("Address of block: %p\n", curr);
 
     // Ensure the block is large enough and has the smallest diff (best fit)
-    if (calc_diff >= 0 && (size_t)calc_diff < diff) // Ensure block is large enough and smaller than current best
+    if (calc_diff >= 0 && (size_t)calc_diff < diff) 
     {
       best = curr;
-      diff = (size_t)calc_diff; // Update diff with the current smallest difference
+      diff = (size_t)calc_diff;
     }
     // curr = curr->next;
     curr = get_next_through_off(curr);
   }
 
-  return best; // This will return a block that is >= requested size
+  return best;
 }
 
 /** Returns the smallest suitable free block by searching the appropriate free lists.
@@ -542,7 +488,7 @@ Block *find_block(void *ptr)
       {
         return block;
       }
-      block = get_next_block(block); // Move to next block
+      block = get_next_block(block);
     }
   }
   return NULL;
@@ -558,11 +504,10 @@ void mark_block(Block *block)
     return; // Already marked or null
   }
 
-  // Mark the block
   block->markFlag_index |= MARK_BIT;
 
   // Scan the contents of the block for any pointers
-  uintptr_t *block_data = (uintptr_t *)(block + 1); // Skip the block metadata
+  uintptr_t *block_data = (uintptr_t *)(block + 1);
 
   size_t block_size = get_size(block);
   for (size_t i = 0; i < block_size / sizeof(uintptr_t); i++)
@@ -571,7 +516,8 @@ void mark_block(Block *block)
     Block *inner_block = find_block(potential_ptr);
     if (!inner_block)
     {
-      mark_block(inner_block); // Recursively mark inner blocks
+      // Recursively mark inner blocks
+      mark_block(inner_block); 
     }
   }
 }
@@ -596,18 +542,12 @@ void scan_and_mark(void *stack_bottom)
 /** Removes all the unmarked blocks to free memory. */
 void sweep()
 {
-  // for (int i = 0; i <= index_last_chunk_from_OS; i++)
-  // {
-    // Block *block = ch_array[i]->start;
     Block *block = alloc_block_end;
     Block *freed = NULL;
     while (block)
     {
       if (!is_marked(block))
       {
-        // Free the block if it's not marked
-        
-        // my_free(block + 1); //free the ptr returned by mymalloc
         freed = block;
         
       }
@@ -615,7 +555,6 @@ void sweep()
       remove_from_alloc_list(freed);
       my_free(freed + 1);
     }
-  // }
 }
 
 void *my_malloc(size_t size) 
@@ -636,10 +575,8 @@ void *my_malloc(size_t size)
     size_t total_size = round_up(size + kMetadataSize + sizeof(Footer), kAlignment);
     if (index_last_chunk_from_OS == -1)
     {
-      // Chunk *chunk = get_chunk_from_OS((total_size + sizeof(FENCEPOST) + sizeof(Chunk) + kMemorySize - 1) / kMemorySize);
       get_chunk_from_OS((total_size + sizeof(Chunk) + kMemorySize - 1) / kMemorySize);
     }
-    // int possible_index = calculate_index(total_size);
     Block *best_fit_block = best_fit(total_size);
 
     if (!best_fit_block)
@@ -647,7 +584,6 @@ void *my_malloc(size_t size)
       get_chunk_from_OS((total_size + kMemorySize - 1) / kMemorySize);
       best_fit_block = list_fit(free_lists[N_LISTS - 1], total_size);
     }
-    // printf("The val of checking fence: %i\n", is_next_fencepost(best_fit_block));
     if (!is_next_outside_chunk(best_fit_block) && get_next_block(best_fit_block) != NULL)
     {
       set_allocation_status(get_next_block(best_fit_block), 1, 0);
@@ -663,9 +599,6 @@ void *my_malloc(size_t size)
       best_fit_block = split_block(best_fit_block, total_size);
       set_allocation_status(best_fit_block, 1, 1);
       set_footer(best_fit_block);
-      // set_allocation_status(best_fit_block, 0, 0);
-      // The previous block is still free
-      // set_allocation_status(best_fit_block, 0, 0);
       Footer *prev_footer = (Footer *)ADD_BYTES(best_fit_block, -sizeof(Footer));
       Block *prev_contiguous_block = (Block *)ADD_BYTES(best_fit_block, -prev_footer->size);
       freeing_up(prev_contiguous_block);
@@ -736,7 +669,6 @@ void *get_end_of_stack() {
 void my_gc() {
   void *end_of_stack = get_end_of_stack();
 
-  // TODO
   scan_and_mark(end_of_stack);
   sweep();
 }

@@ -24,7 +24,7 @@ int main(void) {
   char *a = my_calloc_gc(8);
   char *b = my_calloc_gc(100);
   char *c = my_calloc_gc(10);
-  void *d = 0x7ffff7d89f20;
+  // void *d = 0x7ffff7d89f20; (just for local testing)
   // b = NULL;
   // char *d = ;
   c = NULL;
