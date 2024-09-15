@@ -535,7 +535,8 @@ Block *find_block(void *ptr)
     Block *block = ch_array[i]->start;
     while ((void *)block < ch_array[i]->end && block)
     {
-      void *start = (void *)(block + 1); // Start of user data
+      // void *start = (void *)(block + 1); // Start of user data
+      void *start = (void *)block; //
       void *end = ADD_BYTES(block, get_size(block));
       if (ptr >= start && ptr < end)
       {

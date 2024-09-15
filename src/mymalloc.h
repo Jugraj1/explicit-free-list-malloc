@@ -33,8 +33,6 @@
 // Maximum number of requests from OS
 #define MAX_REQ 256
 
-// extern int index_last_chunk_from_OS;
-
 
 /** This is the Block struct, which contains all metadata needed for your 
  *  explicit free list. You are allowed to modify this struct (and will need to 

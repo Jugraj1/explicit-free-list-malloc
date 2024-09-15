@@ -24,11 +24,12 @@ int main(void) {
   char *a = my_calloc_gc(8);
   char *b = my_calloc_gc(100);
   char *c = my_calloc_gc(10);
+  void *d = 0x7ffff7d89f20;
   // b = NULL;
-  char *d = my_calloc_gc(20);
-  // c = NULL;
-  // a  = NULL;
-  // d = NULL;
+  // char *d = ;
+  c = NULL;
+  a  = NULL;
+  b = NULL;
 
   my_gc();
   print_heap();
