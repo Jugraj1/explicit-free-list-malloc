@@ -1,6 +1,4 @@
 #include "mymalloc.h"
-#include "../tests/testing.h"
-#include <string.h>
 
 // Word alignment
 const size_t kAlignment = sizeof(size_t);
@@ -48,23 +46,6 @@ int calculate_index(size_t size)
   return index;
 }
 
-/** Returns a pointer to the last (most recent) memory chunk
- * that was requested from OS.
- * Would return NULL if memory was never requested.
- */
-// Chunk *last_chunk_from_OS()
-// {
-// Chunk *last = first_map;
-// if (last != NULL)
-// {
-//   while (last->next != NULL)
-//   {
-//     last = last->next;
-//   }
-// }
-// return last;
-// }
-
 /* Used to extract the chunk index. */
 int get_chunk_index(Block *block)
 {
@@ -73,10 +54,7 @@ int get_chunk_index(Block *block)
 
 void set_chunk_index(Block *block, int chunk_index)
 {
-  // Clear the existing chunk index by ANDing with the inverse of the CHUNK_MASK
   block->markFlag_index &= ~CHUNK_MASK;
-
-  // OR the chunk_index with the current index ensuring that the MARK_BIT is preserved
   block->markFlag_index |= (chunk_index & CHUNK_MASK);
 }
 
@@ -110,7 +88,7 @@ void set_next_off(Block *from, Block *to)
 {
   if (to == NULL)
   {
-    from->next_offset = 0; // Set to 0 if there's no valid 'to' block
+    from->next_offset = 0;
   }
   else
   {
@@ -167,7 +145,7 @@ void set_footer(Block *block)
 
 /** Gets the footer of the given block.
  * Function must be invoked only on free blocks,
- * allocated blocks does not have a footer
+ * allocated blocks does not have a footer (postponed to future implementations)
  */
 Footer *get_footer(Block *free_block)
 {
@@ -178,10 +156,6 @@ Footer *get_footer(Block *free_block)
 /* Checks whether moving to the left takes us out of the chunk. */
 bool is_prev_outside_chunk(Block *block)
 {
-  // Get the address of the potential fencepost (which is a uint32_t value).
-  // uint32_t *possible_fencepost = (uint32_t *)ADD_BYTES(block, -sizeof(Chunk));
-
-  // Check if the previous block is a fencepost.
   return block==ch_array[get_chunk_index(block)]->start;
 }
 
@@ -212,9 +186,7 @@ void remove_from_free_list(Block *block)
   Block *prev = NULL;
   while (curr != NULL && curr != block)
   {
-    // curr = curr->next;
     prev = curr;
-    printf("The address of prev: %p\n", prev);
     curr = get_next_through_off(curr);
   }
 
@@ -224,15 +196,11 @@ void remove_from_free_list(Block *block)
     return;
   }
 
-  // Block *prev = block->prev;
-  // Block *next = block->next;
   Block *next = get_next_through_off(block);
-  // set_next_off(block, NULL);
 
   // If there's a previous block, update its next pointer.
   if (prev != NULL)
   {
-    // prev->next = next;
       set_next_off(prev, next);
   }
   else
@@ -240,17 +208,8 @@ void remove_from_free_list(Block *block)
     // Handle case where the block is the head of the free list.
     free_lists[index] = next;
   }
-
-  // If there's a next block, update its prev pointer.
-  // if (next != NULL)
-  // {
-  //   next->prev = prev;
-  // }
-
-  // Clear the block's next and prev pointers.
-  // block->next = NULL;
+  // Clear the block's next pointer.
   set_next_off(block, NULL);
-  // block->prev = NULL;
 }
 
 /** Simply coalesces two given blocks whilst also removing block1 from a list where it exists
@@ -262,10 +221,8 @@ void coalesce(Block *block1, Block *block2)
   remove_from_free_list(block2);
   // Update the size of the block while preserving flag bits.
   set_size(block1, get_size(block1) + get_size(block2));
-  // next and prev could be safely set to null as would be taken care of in freeing
-  // block1->next = NULL;
+  // next could be safely set to null as would be taken care of in freeing
   set_next_off(block1, NULL);
-  // block1->prev = NULL;
   get_footer(block1)->size = get_size(block1);
   get_footer(block1)->allocated = 0;
 }
@@ -276,32 +233,17 @@ void coalesce(Block *block1, Block *block2)
  */
 void put_block_in_free_list(Block *block, int index)
 {
-  // int index = calculate_index(get_size(block));
   // Insert the coalesced block at the head of the free list
-  if (index >= N_LISTS)
-  {
-    index = N_LISTS - 1;
-  }
   Block *first_in_list = free_lists[index];
-  // set_allocation_status(first_in_list, 0, 1);
-
-  // if (first_in_list != NULL)
-  // {
-  //   first_in_list->prev = block;
-  // }
-
-  // block->next = first_in_list;
   set_next_off(block, first_in_list);
-  // block->prev = NULL;
 
   // Update the head of the free list
   free_lists[index] = block;
-  // set_allocation_status(first_in_list, 0, 0);
 }
 
 /** Puts the block in the appropriate free list mainly taking care of logic coalescing
  * Also takes care of coalescing
- * assumes block has updated alocation status as free
+ * assumes block has updated allocation status as free
  */
 void freeing_up(Block *block)
 {
@@ -385,14 +327,8 @@ void *get_chunk_from_OS(int multiple)
   set_allocation_status(block, 0, 1);
   set_allocation_status(block, 1, 0);
 
-  // block->next = NULL;
   set_next_off(block, NULL);
-  // block->prev = NULL;
-  // block->index = index_last_chunk_from_OS;
   set_chunk_index(block, index_last_chunk_from_OS);
-  // Navigate to the last of the chunk to place a fencepost at the other end too
-  // uint32_t *end_fencepost = ADD_BYTES(chunk, multiple * kMemorySize - sizeof(FENCEPOST));
-  // *end_fencepost = FENCEPOST;
   ch_array[index_last_chunk_from_OS] = chunk;
   corr_size_arr[index_last_chunk_from_OS] = multiple * kMemorySize;
   set_footer(block);
@@ -417,47 +353,21 @@ Chunk *chunk_from_block(Block *block)
  */
 Block *split_block(Block *block, size_t size)
 {
-  // remove_from_free_list(block);
   size_t original_size = get_size(block);
   set_size(block, original_size - size);
   Block *right = get_next_block(block);
-  // printf("Block right's address after splitting :%p \n", right);
-  // right->index = get_chunk_index(block);
   set_chunk_index(right, get_chunk_index(block));
   set_size(right, size);
   set_allocation_status(block, 0, 1);
   set_footer(block);
-  // put_block_in_free_list(block);
 
   set_allocation_status(right, 0, 1);
   set_footer(right);
-  // put_block_in_free_list(right);
 
   set_allocation_status(right, 0, 0);
 
   return right;
 }
-
-/** Given a chunk, finds a block in that having size closest to size.
- * size is inclusive of meta-data size
- */
-// Block *best_fit_in_chunk(Chunk *chunk, size_t size)
-// {
-//   Block *search = chunk->start_free_list;
-//   Block *best = NULL;
-//   size_t diff = SIZE_MAX;
-//   while (search != NULL)
-//   {
-//     size_t calc_diff = search->size - size;
-//     if (calc_diff >= 0 && calc_diff < diff)
-//     {
-//       best = search;
-//       diff = calc_diff;
-//     }
-//     search = search->next;
-//   }
-//   return best;
-// }
 
 /* Returns a block by searching the list starting at base if the block exists, NULL otherwise*/
 Block *list_fit(Block *base, size_t size)
@@ -469,16 +379,13 @@ Block *list_fit(Block *base, size_t size)
   while (curr)
   {
     ssize_t calc_diff = get_size(curr) - size;
-    // printf("Checking block size: %zu, requested size: %zu, calc_diff: %zd\n", get_size(curr), size, calc_diff);
-    // printf("Address of block: %p\n", curr);
 
     // Ensure the block is large enough and has the smallest diff (best fit)
-    if (calc_diff >= 0 && (size_t)calc_diff < diff) // Ensure block is large enough and smaller than current best
+    if (calc_diff >= 0 && (size_t)calc_diff < diff)
     {
       best = curr;
-      diff = (size_t)calc_diff; // Update diff with the current smallest difference
+      diff = (size_t)calc_diff;
     }
-    // curr = curr->next;
     curr = get_next_through_off(curr);
   }
 
@@ -506,35 +413,7 @@ Block *best_fit(size_t size)
   return possible;
 }
 
-/* Removes a block to the appropriate */
-// void mallocing(Block *block)
-// {
-//   Chunk *assoc_chunk = chunk_from_block(block);
-//   Block *prev_in_free_list = block->prev;
-//   Block *next_in_free_list = block->next;
-//   prev_in_free_list->next = next_in_free_list;
-//   if (next_in_free_list)
-//   {
-//     next_in_free_list->prev = prev_in_free_list;
-//   }
-//   Block *alloc_before = assoc_chunk->start_alloc_list;
-//   if (!alloc_before)
-//   {
-//     assoc_chunk->start_alloc_list = block;
-//     block->next = NULL;
-//     block->prev = NULL;
-//     return;
-//   }
-//   while (alloc_before < block)
-//   {
-//     alloc_before = alloc_before->next;
-//   }
-//   Block *alloc_after = alloc_before->prev;
-//   block->next = alloc_before;
-//   block->prev = alloc_after;
-// }
-
-/* Returns a pointer to the block of memory satisfying size. */
+/* Returns a pointer to the block of memory satisfying size (payload). */
 void *my_malloc(size_t size)
 {
   if (!size)
@@ -552,10 +431,8 @@ void *my_malloc(size_t size)
   size_t total_size = round_up(size + kMetadataSize + sizeof(Footer), kAlignment);
   if (index_last_chunk_from_OS == -1)
   {
-    // Chunk *chunk = get_chunk_from_OS((total_size + sizeof(FENCEPOST) + sizeof(Chunk) + kMemorySize - 1) / kMemorySize);
     get_chunk_from_OS((total_size + sizeof(FENCEPOST) + sizeof(Chunk) + kMemorySize - 1) / kMemorySize);
   }
-  // int possible_index = calculate_index(total_size);
   Block *best_fit_block = best_fit(total_size);
 
   if (!best_fit_block)
@@ -563,7 +440,6 @@ void *my_malloc(size_t size)
     get_chunk_from_OS((total_size + kMemorySize - 1) / kMemorySize);
     best_fit_block = list_fit(free_lists[N_LISTS - 1], total_size);
   }
-  // printf("The val of checking fence: %i\n", is_next_fencepost(best_fit_block));
   if (!is_next_outside_chunk(best_fit_block) && get_next_block(best_fit_block) != NULL)
   {
     set_allocation_status(get_next_block(best_fit_block), 1, 0);
@@ -579,13 +455,9 @@ void *my_malloc(size_t size)
     best_fit_block = split_block(best_fit_block, total_size);
     set_allocation_status(best_fit_block, 1, 1);
     set_footer(best_fit_block);
-    // set_allocation_status(best_fit_block, 0, 0);
-    // The previous block is still free
-    // set_allocation_status(best_fit_block, 0, 0);
     Footer *prev_footer = (Footer *)ADD_BYTES(best_fit_block, -sizeof(Footer));
     Block *prev_contiguous_block = (Block *)ADD_BYTES(best_fit_block, -prev_footer->size);
     freeing_up(prev_contiguous_block);
-    // remove_from_free_list(best_fit_block);
   }
 
   return (void *)(best_fit_block + 1);
@@ -593,7 +465,6 @@ void *my_malloc(size_t size)
 
 bool is_valid(void *ptr)
 {
-  // free called when memory allocator has not been initialised
   if (index_last_chunk_from_OS < 0)
   {
     return false;
@@ -622,12 +493,7 @@ void my_free(void *ptr)
     return;
   }
   Block *block = ptr_to_block(ptr);
-  // if (get_size(block) == 0)
-  // {
-  //   return;
-  // }
   set_allocation_status(block, 0, 1);
-  // put_block_in_free_list(block, calculate_index(get_size(block))); //this can be an issue
   set_footer(block);
   size_t chunk_size = corr_size_arr[get_chunk_index(block)];
   if (get_next_block(block) < (Block *)ADD_BYTES(ch_array[get_chunk_index(block)], chunk_size))
@@ -701,6 +567,7 @@ Block *ptr_to_block(void *ptr)
   return ADD_BYTES(ptr, -((ssize_t)kMetadataSize));
 }
 
+/* A very useful function for debugging*/
 void print_heap(void)
 {
   printf("---- Heap Dump ----\n");
@@ -713,55 +580,13 @@ void print_heap(void)
     size_t chunk_size = corr_size_arr[i];
     while ((void *)curr < ADD_BYTES(ch_array[i], chunk_size) && curr)
     {
-      // Get the allocation status
       bool allocated = is_allocated(curr);
       size_t size = get_size(curr);
       printf("  Block at address %p | Size: %zu | %s\n", (void *)curr, size, allocated ? "Allocated" : "Free");
 
-      // Move to the next block
       curr = get_next_block(curr);
     }
   }
 
   printf("-------------------\n");
-}
-
-void print_chunk(void)
-{
-  printf("---- Chunk Dump ----\n");
-
-  for (int i = 0; i <= index_last_chunk_from_OS; i++)
-  {
-    Chunk *chunk = ch_array[i];
-    size_t chunk_size = corr_size_arr[i];
-
-    // Print the chunk details
-    printf("Chunk %d (address: %p):\n", i, (void *)chunk);
-    printf("  Chunk Size: %zu bytes\n", chunk_size);
-    printf("  Start Block Address: %p\n", (void *)chunk->start);
-    printf("  Fencepost Address: %p\n", (void *)ADD_BYTES(chunk, chunk_size - sizeof(FENCEPOST)));
-    printf("  Fencepost Value: %x\n", FENCEPOST);
-
-    Block *curr_block = chunk->start;
-    while ((void *)curr_block < ADD_BYTES(chunk, chunk_size) && curr_block)
-    {
-      // Get block details
-      bool allocated = is_allocated(curr_block);
-      size_t block_size = get_size(curr_block);
-
-      // Print block details
-      printf("  Block at address %p | Size: %zu | %s\n",
-             (void *)curr_block, block_size, allocated ? "Allocated" : "Free");
-
-      // Move to the next block
-      curr_block = get_next_block(curr_block);
-    }
-  }
-
-  printf("---------------------\n");
-}
-
-int main(void)
-{
-  printf("the size of the block struct is : %lu\n", sizeof(Block));
 }

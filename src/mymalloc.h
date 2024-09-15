@@ -18,8 +18,6 @@
 
 #define ADD_BYTES(ptr, n) ((void *) (((char *) (ptr)) + (n)))
 
-#define FENCEPOST 0xDEADBEEF
-
 // Second bit for previous block alloc status
 #define PREV_FREE_MASK 0x2
 // First bit for current block allocation status
@@ -41,19 +39,13 @@
 typedef struct Block Block;
 
 struct Block {
-  // Size of the block, including meta-data size.
   // Also stores two flags : allocation status of current (Least significant bit) and previous block (Second L.S.B)
   size_t size_and_flags;
 
-  // Offset that will show how far is the next free block from this one (0 shows none)
+  // Offset that will show how far is the next free/alloc block from this one (0 shows none)
   int32_t next_offset;
 
-  // Next and Prev blocks
-  // Block *next;
-  // Block *prev;
-  // Is the block allocated or not?
-  // bool allocated;
-  // Index to keep track of the associated Chunk
+  // Index to keep track of the associated Chunk, mark flag used in GC (MSB)
   int markFlag_index;
 };
 
@@ -64,23 +56,10 @@ typedef struct Chunk Chunk;
 
 struct Chunk
 {
-  // Fencepost to detect buffer overflows
-  // uint32_t fencepost; 
-
   // Represents the start of the first block
   void *start;
   void *end; // This will be the address which is right after the last allocable block 
-
-  // Chunk *next;
-  // Chunk *prev;
-
-  // This represents the start of free blocks in this memory returned by OS
-  // Block *start_free_list;
-  // This represents the start of allocated blocks in this memory returned by OS
-  // Block *start_alloc_list;
 };
-
-// extern Chunk *ch_array[MAX_REQ];
 
 /** Represents the footer for a block storing size and the allocated status
  */
