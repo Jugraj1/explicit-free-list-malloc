@@ -431,7 +431,7 @@ void *my_malloc(size_t size)
   size_t total_size = round_up(size + kMetadataSize + sizeof(Footer), kAlignment);
   if (index_last_chunk_from_OS == -1)
   {
-    get_chunk_from_OS((total_size + sizeof(FENCEPOST) + sizeof(Chunk) + kMemorySize - 1) / kMemorySize);
+    get_chunk_from_OS((total_size + sizeof(Chunk) + kMemorySize - 1) / kMemorySize);
   }
   Block *best_fit_block = best_fit(total_size);
 
