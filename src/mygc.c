@@ -637,7 +637,7 @@ void *my_malloc(size_t size)
     if (index_last_chunk_from_OS == -1)
     {
       // Chunk *chunk = get_chunk_from_OS((total_size + sizeof(FENCEPOST) + sizeof(Chunk) + kMemorySize - 1) / kMemorySize);
-      get_chunk_from_OS((total_size + sizeof(FENCEPOST) + sizeof(Chunk) + kMemorySize - 1) / kMemorySize);
+      get_chunk_from_OS((total_size + sizeof(Chunk) + kMemorySize - 1) / kMemorySize);
     }
     // int possible_index = calculate_index(total_size);
     Block *best_fit_block = best_fit(total_size);
