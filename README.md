@@ -5,7 +5,7 @@
     for ANU COMP2310 Assignment 1 · 2025
 -->
 
-<h1 align="center">seglist‑malloc 🗂️</h1>
+<h1 align="center">seglist‑malloc 🗂️ (ANU Project)</h1>
 <p align="center">
   <i>A 16‑byte‑metadata, constant‑time‑coalescing allocator<br>
      with an optional mark‑and‑sweep garbage collector</i>
